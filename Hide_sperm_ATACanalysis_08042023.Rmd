@@ -1,0 +1,546 @@
+---
+title: "Hides_sperm_ATAC"
+author: "Joanna Yeung"
+date: '2023-08-04'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(GenomicRanges)
+library(rtracklayer)
+library(chromVAR)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(preprocessCore)
+library(viridis)
+library(scales)
+library(ChIPseeker)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene) # or whatever genome you are using
+library(gridExtra)
+library(grid)
+library(lattice)
+library(GenomicFeatures)
+```
+
+```{r}
+# make TxDb object from Xenopus Laevis gtf file
+TxDb.Xeno <- makeTxDbFromGFF("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+```
+```{r}
+# import interphase samples
+HAK001 <- import("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK001/peakCalls/atacHAK001_S1_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak")
+HAK001_filt <- HAK001[HAK001$score >= 30, ]
+
+HAK007 <- import("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test082223/atacHAK007/peakCalls/atacHAK007_S12_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak")
+HAK007_filt <- HAK007[HAK007$score >= 30, ]
+
+HAK009 <- import("/rugpfs/fs0/fnbk_lab/store/hkonishi/testRun/test082223/atacHAK009/peakCalls/atacHAK009_S14_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak")
+HAK009_filt <- HAK009[HAK009$score >= 30, ]
+
+# import mitotic samples
+HAK002 <- import("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK002/peakCalls/atacHAK002_S2_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak")
+HAK002_filt <- HAK002[HAK002$score >= 30, ]
+
+# annotate peaks
+peakAnno_Interphase <- lapply(list(HAK001_filt, HAK007_filt, HAK009_filt), annotatePeak, TxDb=TxDb.Xeno)
+peakAnno_HAK002 <- annotatePeak(HAK002_filt, TxDb=TxDb.Xeno)
+
+peakAnnoPie_I <- lapply(peakAnno_Interphase, plotAnnoPie)
+peakAnnoPie_M <- plotAnnoPie(peakAnno_HAK002)
+```
+
+
+```{r}
+covplots <- list(covplot(HAK001_filt, title="HAK001"), covplot(HAK002_filt, title="HAK002")) 
+covplots
+
+HAK001_filt_df <- as.data.frame(HAK001_filt)
+HAK002_filt_df <- as.data.frame(HAK002_filt)
+ggplot(HAK001_filt_df, aes(x=seqnames, y=width))+geom_violin()+geom_boxplot()
+ggplot(HAK002_filt_df, aes(x=seqnames, y=width))+geom_violin()+geom_boxplot()
+```
+
+# determining where peaks of differential accessibility within a sample are located. 
+```{r}
+# order peaks by qValue
+HAK001_filt_ord <- HAK001_filt[order(HAK001_filt$qValue, decreasing=T), ]
+HAK002_filt_ord <- HAK002_filt[order(HAK002_filt$qValue, decreasing=T), ]
+
+# filter for top 10% most significant peaks
+HAK001_filt_top10 <- HAK001_filt_ord[1:(as.integer(length(HAK001_filt_ord)*0.1)), ]
+HAK002_filt_top10 <- HAK002_filt_ord[1:(as.integer(length(HAK002_filt_ord)*0.1)), ]
+
+# filter for bottom 10% least significant peaks
+HAK001_filt_bot10 <- HAK001_filt_ord[(as.integer(length(HAK001_filt_ord)*0.9)):length(HAK001_filt_ord), ]
+HAK002_filt_bot10 <- HAK002_filt_ord[(as.integer(length(HAK002_filt_ord)*0.9)):length(HAK002_filt_ord), ]
+
+# annotate top 10% most significant peaks
+peakAnno_HAK001top10 <- annotatePeak(HAK001_filt_top10, TxDb=TxDb.Xeno)
+peakAnno_HAK002top10 <- annotatePeak(HAK002_filt_top10, TxDb=TxDb.Xeno)
+
+
+# annotate bottom 10% most significant peaks
+peakAnno_HAK001bot10 <- annotatePeak(HAK001_filt_bot10, TxDb=TxDb.Xeno)
+peakAnno_HAK002bot10 <- annotatePeak(HAK002_filt_bot10, TxDb=TxDb.Xeno)
+
+plotAnnoPie(peakAnno_HAK001top10, main="top 10% peaks in HAK001") plotAnnoPie(peakAnno_HAK002top10, main="bottom 10% peaks in HAK002")
+
+plotAnnoPie(peakAnno_HAK001bot10, main="bottom 10% peaks in HAK001") plotAnnoPie(peakAnno_HAK002bot10, main="bottom 10% peaks in HAK002")
+
+# it looks like peaks that have low accessibility are more likely to be found in the distal regions relative to all peaks and peaks with high accessibility are more likely to be found in promoter regions relative to all peaks.
+```
+```{r}
+overlapPeaks <- subsetByOverlaps(HAK001_filt, HAK002_filt, minoverlap = 370)
+
+HAK001_uniq <- HAK001_filt[!HAK001_filt %over% overlapPeaks, ]
+HAK002_uniq <- HAK002_filt[!HAK002_filt %over% overlapPeaks, ]
+```
+
+
+
+```{r}
+# read in index file for Xenopus_laevis_v10.1
+xenLae2 <- read.table("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1_genomic.fna.fai", sep="\t")
+
+# make GRanges object for whole genome
+xenLae2_GR <- GRanges(seqnames=xenLae2$V1, ranges=IRanges(start=1, end=xenLae2$V2))
+# use tile function to create bins of 10Mb for the Xenopus genome
+xenLae2_tiles <- tile(xenLae2_GR, width=10000000)
+xenLae2_tiles
+# use tile function to create bins of 5Mb for the Xenopus genome
+xenLae2_5Mb <- tile(xenLae2_GR, width=5000000)
+# use tile function to create bins of 5Mb for the Xenopus genome
+xenLae2_1Mb <- tile(xenLae2_GR, width=1000000)
+```
+
+```{r}
+# create GRanges object with only the 1st 10Mb bin and last 10Mb bin for each chromosome to check how the accessibility looks like at the ends vs rest of the genome. 
+ends_of_xenLae2 <- list()
+for(i in 1:length(xenLae2_tiles)){
+ends_of_xenLae2[[i]] <- xenLae2_tiles[[i]][c(1, length(xenLae2_tiles[[i]]))]
+}
+ends_of_xenLae2 <- unlist(GRangesList(ends_of_xenLae2))
+
+# find peaks that fall within 1st and last bins
+HAK001_ends <- HAK001_filt[HAK001_filt %over% ends_of_xenLae2]
+HAK001_ends_df <- as.data.frame(HAK001_ends) # convert to dataframe
+HAK001_ends_df$end <- "Yes"
+# find peaks that are outside of 1st and last bins
+HAK001_notends_df <- as.data.frame(HAK001_filt[!HAK001_filt %over% ends_of_xenLae2]) # convert to dataframe
+HAK001_notends_df$end <- "No"
+
+# merge into 1 dataframe for peaks that are found at the 1st and last bins vs peaks that aren't 
+HAK001_ends_df <- rbind(HAK001_ends_df, HAK001_notends_df)
+
+# plot ggplot comparing signalValue of peaks within vs outside of 1st and last bins of chromosomes
+ggplot(HAK001_ends_df, aes(x=end, y=signalValue))+geom_jitter()
+
+# this wasn't very informative so I will plot across all bins instead. 
+```
+# 10Mb bins across the genome: 
+```{r}
+# create empty nested lists: 
+
+# GRanges of 10Mb bins across genome
+xenLae2_tiles_bin <- vector(mode="list", length=18)
+for(i in 1:length(xenLae2_tiles_bin)){
+xenLae2_tiles_bin[[i]] <- vector(mode="list", length=length(xenLae2_tiles[[i]]))
+}
+# GRanges of peaks found in each bin across genome for HAK001 and HAK002 samples. 
+HAK001_tiles_bin <- vector(mode="list", length=18)
+HAK002_tiles_bin <- vector(mode="list", length=18)
+for(i in 1:length(HAK001_tiles_bin)){
+HAK001_tiles_bin[[i]] <- vector(mode="list", length=length(xenLae2_tiles[[i]]))
+HAK002_tiles_bin[[i]] <- vector(mode="list", length=length(xenLae2_tiles[[i]]))
+}
+
+# extract peaks from samples that fall within each bin across chromosomes. 
+for(i in 1:length(xenLae2_tiles[1:18])){
+  for(j in 1:length(xenLae2_tiles_bin[[i]])){
+    # each nested list object in list is the jth GRanges position of xenLae2_tiles list. 
+xenLae2_tiles_bin[[i]][[j]] <-  xenLae2_tiles[[i]][j]
+xenLae2_tiles_bin[[i]][[j]]$tile <- as.character(j) # create new column indicating which jth tile/bin GRanges list object belongs to
+
+# filter for peaks that fall within each jth tile of each ith chromosome for HAK001 sample 
+HAK001_tiles_bin[[i]][[j]] <- HAK001_filt[HAK001_filt %over% xenLae2_tiles_bin[[i]][[j]]]
+HAK001_tiles_bin[[i]][[j]]$tile <- as.character(j) # create new column indicating which jth tile/bin peak belongs to. 
+
+# filter for peaks that fall within each jth tile of each ith chromosome for HAK002 sample 
+HAK002_tiles_bin[[i]][[j]] <- HAK002_filt[HAK002_filt %over% xenLae2_tiles_bin[[i]][[j]]]
+HAK002_tiles_bin[[i]][[j]]$tile <- as.character(j) # create new column indicating which jth tile/bin peak belongs to. 
+  }
+  
+# unlist so that each object in list is a list of peaks found across the chromosomes with a column indicating the tile they fall under. 
+HAK001_tiles_bin[[i]] <- unlist(GRangesList(HAK001_tiles_bin[[i]]))
+HAK002_tiles_bin[[i]] <- unlist(GRangesList(HAK002_tiles_bin[[i]]))
+}
+
+# convert GRangesList object to dataframes within list to plot in ggplot. 
+HAK001_tiles_bin_df <- list()
+HAK002_tiles_bin_df <- list()
+for(i in 1:length(HAK001_tiles_bin)){
+  HAK001_tiles_bin_df[[i]] <- as.data.frame(HAK001_tiles_bin[[i]])
+  HAK001_tiles_bin_df[[i]]$tile <- as.factor(as.numeric(HAK001_tiles_bin_df[[i]]$tile))# factorize tile column so that tiles are properly ordered in ggplot. 
+  HAK002_tiles_bin_df[[i]] <- as.data.frame(HAK002_tiles_bin[[i]])
+  HAK002_tiles_bin_df[[i]]$tile <- as.factor(as.numeric(HAK002_tiles_bin_df[[i]]$tile))
+}
+
+# plot ggplot of signalValue of each peak within jth tile in ith chromosome for HAK001 & HAK002 samples. 
+HAK001_tiles_bin_df_ggplot <- list()
+HAK002_tiles_bin_df_ggplot <- list()
+for(i in 1:length(HAK001_tiles_bin_df)){
+HAK001_tiles_bin_df_ggplot[[i]] <- ggplot(HAK001_tiles_bin_df[[i]], aes(x=tile, y=signalValue))+geom_jitter()+ggtitle(unique(HAK001_tiles_bin_df[[i]]$seqnames))
+
+HAK002_tiles_bin_df_ggplot[[i]] <- ggplot(HAK002_tiles_bin_df[[i]], aes(x=tile, y=signalValue))+geom_jitter()+ggtitle(unique(HAK002_tiles_bin_df[[i]]$seqnames))
+}
+
+# save plots to pdf. 
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/HAK001_tiles_bin_df_ggplot.pdf")
+HAK001_tiles_bin_df_ggplot 
+dev.off()
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/HAK002_tiles_bin_df_ggplot.pdf")
+HAK002_tiles_bin_df_ggplot 
+dev.off()
+
+# it looks like for HAK001 the tiles at the ends of the chromosomes appear to have peaks with higher signalValue implying higher accessibility at the subtelomeric ends? 
+HAK001_tiles_bin_df_ggplot 
+HAK002_tiles_bin_df_ggplot 
+```
+
+```{r}
+# same as above but with unfiltered peaksets to see if the pattern of accessibility still holds true. 
+
+# GRanges of peaks found in each bin across genome for HAK001 and HAK002 samples. 
+HAK001_tiles_bin <- vector(mode="list", length=18)
+HAK002_tiles_bin <- vector(mode="list", length=18)
+for(i in 1:length(HAK001_tiles_bin)){
+HAK001_tiles_bin[[i]] <- vector(mode="list", length=length(xenLae2_tiles[[i]]))
+HAK002_tiles_bin[[i]] <- vector(mode="list", length=length(xenLae2_tiles[[i]]))
+}
+
+# extract peaks from samples that fall within each bin across chromosomes. 
+for(i in 1:length(xenLae2_tiles[1:18])){
+  for(j in 1:length(xenLae2_tiles_bin[[i]])){
+    # each nested list object in list is the jth GRanges position of xenLae2_tiles list. 
+
+# filter for peaks that fall within each jth tile of each ith chromosome for HAK001 sample 
+HAK001_tiles_bin[[i]][[j]] <- HAK001[HAK001 %over% xenLae2_tiles_bin[[i]][[j]]]
+HAK001_tiles_bin[[i]][[j]]$tile <- as.character(j) # create new column indicating which jth tile/bin peak belongs to. 
+
+# filter for peaks that fall within each jth tile of each ith chromosome for HAK002 sample 
+HAK002_tiles_bin[[i]][[j]] <- HAK002[HAK002 %over% xenLae2_tiles_bin[[i]][[j]]]
+HAK002_tiles_bin[[i]][[j]]$tile <- as.character(j) # create new column indicating which jth tile/bin peak belongs to. 
+  }
+# unlist so that each object in list is a list of peaks found across the chromosomes with a column indicating the tile they fall under. 
+HAK001_tiles_bin[[i]] <- unlist(GRangesList(HAK001_tiles_bin[[i]]))
+HAK002_tiles_bin[[i]] <- unlist(GRangesList(HAK002_tiles_bin[[i]]))
+}  
+
+# convert GRangesList object to dataframes within list to plot in ggplot. 
+HAK001_tiles_bin_df <- list()
+HAK002_tiles_bin_df <- list()
+for(i in 1:length(HAK001_tiles_bin)){
+  HAK001_tiles_bin_df[[i]] <- as.data.frame(HAK001_tiles_bin[[i]])
+  HAK001_tiles_bin_df[[i]]$tile <- as.factor(as.numeric(HAK001_tiles_bin_df[[i]]$tile))# factorize tile column so that tiles are properly ordered in ggplot. 
+  HAK002_tiles_bin_df[[i]] <- as.data.frame(HAK002_tiles_bin[[i]])
+  HAK002_tiles_bin_df[[i]]$tile <- as.factor(as.numeric(HAK002_tiles_bin_df[[i]]$tile))
+}
+
+# plot ggplot of signalValue of each peak within jth tile in ith chromosome for HAK001 & HAK002 samples. 
+HAK001_tiles_bin_df_ggplot <- list()
+HAK002_tiles_bin_df_ggplot <- list()
+for(i in 1:length(HAK001_tiles_bin_df)){
+HAK001_tiles_bin_df_ggplot[[i]] <- ggplot(HAK001_tiles_bin_df[[i]], aes(x=tile, y=signalValue))+geom_jitter()+ggtitle(unique(HAK001_tiles_bin_df[[i]]$seqnames))
+
+HAK002_tiles_bin_df_ggplot[[i]] <- ggplot(HAK002_tiles_bin_df[[i]], aes(x=tile, y=signalValue))+geom_jitter()+ggtitle(unique(HAK002_tiles_bin_df[[i]]$seqnames))
+}
+```
+
+
+## since the previous result was promising, this time, I'll count the number of fragments per bin to see if it gives similar conclusion as the signalValue of peaks generated by MACS2. 
+```{r}
+# use chromVAR to count fragments across tiles
+fragCounts_HAK001 <- list()
+for(i in 1:length(xenLae2_tiles)){
+fragCounts_HAK001[[i]] <- chromVAR::getCounts("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK001/atacHAK001_S1_001.trim.st.all.qft.rmdup.bam", xenLae2_tiles[[i]], paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts_HAK001[[i]] <- SummarizedExperiment::assays(fragCounts_HAK001[[i]])[[1]] # convert fragment Counts into counts matrix  
+}
+
+# remove chromosomes without reads from fragCounts list
+fragCounts_HAK001 <- fragCounts_HAK001[1:18]
+
+# rename row names of count matrix to be "Chr:start-end_tile"
+for(i in 1:length(fragCounts_HAK001)){
+row.names(fragCounts_HAK001[[i]]) <- paste0(unique(seqnames(xenLae2_tiles[[i]])), ":", start(xenLae2_tiles[[i]]), "-", end(xenLae2_tiles[[i]]), "_", "tile", 1:nrow(fragCounts_HAK001[[i]]))  
+}
+
+# convert count matrix to dataframe for plotting in ggplot
+fragCounts_HAK001 <- lapply(lapply(fragCounts_HAK001, as.matrix), as.data.frame)
+# make tile column as rownames and rename column names
+for(i in 1:length(fragCounts_HAK001)){
+fragCounts_HAK001[[i]]$tile <- row.names(fragCounts_HAK001[[i]])
+colnames(fragCounts_HAK001[[i]]) <- c("Count", "tile")
+}
+
+
+# use chromVAR to count fragments across tiles
+fragCounts_HAK002 <- list()
+for(i in 1:length(xenLae2_tiles)){
+fragCounts_HAK002[[i]] <- chromVAR::getCounts("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK002/atacHAK002_S2_001.trim.st.all.qft.rmdup.bam", xenLae2_tiles[[i]], paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts_HAK002[[i]] <- SummarizedExperiment::assays(fragCounts_HAK002[[i]])[[1]] # convert fragment Counts into counts matrix  
+}
+
+# rename row names of count matrix to be "Chr:start-end_tile"
+fragCounts_HAK002 <- fragCounts_HAK002[1:18]
+for(i in 1:length(fragCounts_HAK002)){
+row.names(fragCounts_HAK002[[i]]) <- paste0(unique(seqnames(xenLae2_tiles[[i]])), ":", start(xenLae2_tiles[[i]]), "-", end(xenLae2_tiles[[i]]), "_", "tile", 1:nrow(fragCounts_HAK002[[i]]))
+}
+
+# convert count matrix to dataframe for plotting in ggplot
+fragCounts_HAK002 <- lapply(lapply(fragCounts_HAK002, as.matrix), as.data.frame)
+# make tile column as rownames and rename column names
+for(i in 1:length(fragCounts_HAK002)){
+fragCounts_HAK002[[i]]$tile <- row.names(fragCounts_HAK002[[i]])
+colnames(fragCounts_HAK002[[i]]) <- c("Count", "tile")
+}
+
+
+HAK001_tiles_counts_df_ggplot <- list()
+HAK002_tiles_counts_df_ggplot <- list()
+for(i in 1:length(fragCounts_HAK002)){
+HAK001_tiles_counts_df_ggplot[[i]] <- ggplot(fragCounts_HAK001[[i]], aes(x=tile, y=Count))+geom_bar(stat="identity")+ggtitle(gsub("\\:.*", "", fragCounts_HAK001[[i]]$tile)[1])
+
+HAK002_tiles_counts_df_ggplot[[i]] <- ggplot(fragCounts_HAK002[[i]], aes(x=tile, y=Count))+geom_bar(stat="identity")+ggtitle(gsub("\\:.*", "", fragCounts_HAK002[[i]]$tile)[1])
+}
+
+# once you aggregate all fragments into bins you don't see the pattern of accessibility across the genome anymore. Will try to just count fragments under peaks overlapping bins and/or smaller bin sizes to see if it helps. 
+```
+
+## number of fragments per peaks overlapping in each 10Mb bin. 
+```{r}
+# use chromVAR to count fragments across peaks
+fragCounts_HAK001_peaks <- chromVAR::getCounts("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK001/atacHAK001_S1_001.trim.st.all.qft.rmdup.bam", HAK001, paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts_HAK001_peaks <- SummarizedExperiment::assays(fragCounts_HAK001_peaks)[[1]] # convert fragment Counts into counts matrix  
+
+# rename row names of count matrix to be "Chr:start-end"
+row.names(fragCounts_HAK001_peaks) <- paste0(seqnames(HAK001), ":", start(HAK001), "-", end(HAK001))  
+
+# use chromVAR to count fragments across peaks
+fragCounts_HAK002_peaks <- chromVAR::getCounts("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK002/atacHAK002_S2_001.trim.st.all.qft.rmdup.bam", HAK002, paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts_HAK002_peaks <- SummarizedExperiment::assays(fragCounts_HAK002_peaks)[[1]] # convert fragment Counts into counts matrix  
+
+# rename row names of count matrix to be "Chr:start-end"
+row.names(fragCounts_HAK002_peaks) <- paste0(seqnames(HAK002), ":", start(HAK002), "-", end(HAK002))
+
+fragCounts_HAK001_peaks_df <- data.frame(seqnames=seqnames(HAK001), start=start(HAK001), end=end(HAK001), Count=fragCounts_HAK001_peaks[ ,1], name=HAK001$name)
+fragCounts_HAK002_peaks_df <- data.frame(seqnames=seqnames(HAK002), start=start(HAK002), end=end(HAK002), Count=fragCounts_HAK002_peaks[ ,1], name=HAK002$name)
+
+for(i in 1:length(HAK001_tiles_bin_df)){
+HAK001_tiles_bin_df[[i]]$Count <-fragCounts_HAK001_peaks_df[match(HAK001_tiles_bin_df[[i]]$name, fragCounts_HAK001_peaks_df$name), ]$Count
+}
+for(i in 1:length(HAK002_tiles_bin_df)){
+HAK002_tiles_bin_df[[i]]$Count <-fragCounts_HAK002_peaks_df[match(HAK002_tiles_bin_df[[i]]$name, fragCounts_HAK002_peaks_df$name), ]$Count
+}
+
+# plot ggplot of fragment Counts under each peak within jth tile in ith chromosome for HAK001 & HAK002 samples. 
+HAK001_tiles_bin_df_ggplot <- list()
+HAK002_tiles_bin_df_ggplot <- list()
+for(i in 1:length(HAK001_tiles_bin_df)){
+HAK001_tiles_bin_df_ggplot[[i]] <- ggplot(HAK001_tiles_bin_df[[i]], aes(x=tile, y=Count))+geom_jitter()+ggtitle(unique(HAK001_tiles_bin_df[[i]]$seqnames))
+
+HAK002_tiles_bin_df_ggplot[[i]] <- ggplot(HAK002_tiles_bin_df[[i]], aes(x=tile, y=Count))+geom_jitter()+ggtitle(unique(HAK002_tiles_bin_df[[i]]$seqnames))
+}
+```
+
+# 1Mb tiles
+## fragment counts per 1Mb tiles across the genome. 
+```{r}
+xenLae2_1Mb <- xenLae2_1Mb[1:18]
+# use chromVAR to count fragments across tiles
+fragCounts_1Mb_HAK001 <- list()
+for(i in 1:length(xenLae2_1Mb)){
+fragCounts_1Mb_HAK001[[i]] <- chromVAR::getCounts("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK001/atacHAK001_S1_001.trim.st.all.qft.rmdup.bam", xenLae2_1Mb[[i]], paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts_1Mb_HAK001[[i]] <- SummarizedExperiment::assays(fragCounts_1Mb_HAK001[[i]])[[1]] # convert fragment Counts into counts matrix  
+}
+
+# rename row names of count matrix to be "Chr:start-end_tile"
+for(i in 1:length(fragCounts_1Mb_HAK001)){
+row.names(fragCounts_1Mb_HAK001[[i]]) <- paste0(unique(seqnames(xenLae2_1Mb[[i]])), ":", start(xenLae2_1Mb[[i]]), "-", end(xenLae2_1Mb[[i]]), "_", "tile", 1:nrow(fragCounts_1Mb_HAK001[[i]]))  
+}
+
+# convert count matrix to dataframe for plotting in ggplot
+fragCounts_1Mb_HAK001 <- lapply(lapply(fragCounts_1Mb_HAK001, as.matrix), as.data.frame)
+# make tile column as rownames and rename column names
+for(i in 1:length(fragCounts_1Mb_HAK001)){
+fragCounts_1Mb_HAK001[[i]]$tile <- row.names(fragCounts_1Mb_HAK001[[i]])
+colnames(fragCounts_1Mb_HAK001[[i]]) <- c("Count", "tile")
+}
+
+
+# use chromVAR to count fragments across tiles
+fragCounts_1Mb_HAK002 <- list()
+for(i in 1:length(xenLae2_1Mb)){
+fragCounts_1Mb_HAK002[[i]] <- chromVAR::getCounts("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK002/atacHAK002_S2_001.trim.st.all.qft.rmdup.bam", xenLae2_1Mb[[i]], paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts_1Mb_HAK002[[i]] <- SummarizedExperiment::assays(fragCounts_1Mb_HAK002[[i]])[[1]] # convert fragment Counts into counts matrix  
+}
+
+# rename row names of count matrix to be "Chr:start-end_tile"
+for(i in 1:length(fragCounts_1Mb_HAK002)){
+row.names(fragCounts_1Mb_HAK002[[i]]) <- paste0(unique(seqnames(xenLae2_tiles[[i]])), ":", start(xenLae2_tiles[[i]]), "-", end(xenLae2_tiles[[i]]), "_", "tile", 1:nrow(fragCounts_1Mb_HAK002[[i]]))
+}
+
+# convert count matrix to dataframe for plotting in ggplot
+fragCounts_1Mb_HAK002 <- lapply(lapply(fragCounts_1Mb_HAK002, as.matrix), as.data.frame)
+# make tile column as rownames and rename column names
+for(i in 1:length(fragCounts_1Mb_HAK002)){
+fragCounts_1Mb_HAK002[[i]]$tile <- row.names(fragCounts_1Mb_HAK002[[i]])
+colnames(fragCounts_1Mb_HAK002[[i]]) <- c("Count", "tile")
+}
+
+
+HAK001_tiles_Counts_1Mb_df_ggplot <- list()
+HAK002_tiles_Counts_1Mb_df_ggplot <- list()
+for(i in 1:length(fragCounts_1Mb_HAK002)){
+HAK001_tiles_Counts_1Mb_df_ggplot[[i]] <- ggplot(fragCounts_1Mb_HAK001[[i]], aes(x=tile, y=Count))+geom_bar(stat="identity")+ggtitle(gsub("\\:.*", "", fragCounts_1Mb_HAK001[[i]]$tile)[1])
+
+HAK002_tiles_Counts_1Mb_df_ggplot[[i]] <- ggplot(fragCounts_1Mb_HAK002[[i]], aes(x=tile, y=Count))+geom_bar(stat="identity")+ggtitle(gsub("\\:.*", "", fragCounts_1Mb_HAK002[[i]]$tile)[1])
+}
+```
+
+# 5Mb tiles
+## fragment counts per 5Mb tiles across the genome. 
+```{r}
+xenLae2_5Mb <- xenLae2_5Mb[1:18]
+# use chromVAR to count fragments across tiles
+fragCounts_5Mb_HAK001 <- list()
+for(i in 1:length(xenLae2_5Mb)){
+fragCounts_5Mb_HAK001[[i]] <- chromVAR::getCounts("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK001/atacHAK001_S1_001.trim.st.all.qft.rmdup.bam", xenLae2_5Mb[[i]], paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts_5Mb_HAK001[[i]] <- SummarizedExperiment::assays(fragCounts_5Mb_HAK001[[i]])[[1]] # convert fragment Counts into counts matrix  
+}
+
+# rename row names of count matrix to be "Chr:start-end_tile"
+for(i in 1:length(fragCounts_5Mb_HAK001)){
+row.names(fragCounts_5Mb_HAK001[[i]]) <- paste0(unique(seqnames(xenLae2_5Mb[[i]])), ":", start(xenLae2_5Mb[[i]]), "-", end(xenLae2_5Mb[[i]]), "_", "tile", 1:nrow(fragCounts_5Mb_HAK001[[i]]))  
+}
+
+# convert count matrix to dataframe for plotting in ggplot
+fragCounts_5Mb_HAK001 <- lapply(lapply(fragCounts_5Mb_HAK001, as.matrix), as.data.frame)
+# make tile column as rownames and rename column names
+for(i in 1:length(fragCounts_5Mb_HAK001)){
+fragCounts_5Mb_HAK001[[i]]$tile <- row.names(fragCounts_5Mb_HAK001[[i]])
+colnames(fragCounts_5Mb_HAK001[[i]]) <- c("Count", "tile")
+}
+
+
+# use chromVAR to count fragments across tiles
+fragCounts_5Mb_HAK002 <- list()
+for(i in 1:length(xenLae2_5Mb)){
+fragCounts_5Mb_HAK002[[i]] <- chromVAR::getCounts("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK002/atacHAK002_S2_001.trim.st.all.qft.rmdup.bam", xenLae2_5Mb[[i]], paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts_5Mb_HAK002[[i]] <- SummarizedExperiment::assays(fragCounts_5Mb_HAK002[[i]])[[1]] # convert fragment Counts into counts matrix  
+}
+
+# rename row names of count matrix to be "Chr:start-end_tile"
+for(i in 1:length(fragCounts_5Mb_HAK002)){
+row.names(fragCounts_5Mb_HAK002[[i]]) <- paste0(unique(seqnames(xenLae2_tiles[[i]])), ":", start(xenLae2_tiles[[i]]), "-", end(xenLae2_tiles[[i]]), "_", "tile", 1:nrow(fragCounts_5Mb_HAK002[[i]]))
+}
+
+# convert count matrix to dataframe for plotting in ggplot
+fragCounts_5Mb_HAK002 <- lapply(lapply(fragCounts_5Mb_HAK002, as.matrix), as.data.frame)
+# make tile column as rownames and rename column names
+for(i in 1:length(fragCounts_5Mb_HAK002)){
+fragCounts_5Mb_HAK002[[i]]$tile <- row.names(fragCounts_5Mb_HAK002[[i]])
+colnames(fragCounts_5Mb_HAK002[[i]]) <- c("Count", "tile")
+}
+
+
+HAK001_tiles_Counts_5Mb_df_ggplot <- list()
+HAK002_tiles_Counts_5Mb_df_ggplot <- list()
+for(i in 1:length(fragCounts_5Mb_HAK002)){
+HAK001_tiles_Counts_5Mb_df_ggplot[[i]] <- ggplot(fragCounts_5Mb_HAK001[[i]], aes(x=tile, y=Count))+geom_bar(stat="identity")+ggtitle(gsub("\\:.*", "", fragCounts_5Mb_HAK001[[i]]$tile)[1])
+
+HAK002_tiles_Counts_5Mb_df_ggplot[[i]] <- ggplot(fragCounts_5Mb_HAK002[[i]], aes(x=tile, y=Count))+geom_bar(stat="identity")+ggtitle(gsub("\\:.*", "", fragCounts_5Mb_HAK002[[i]]$tile)[1])
+}
+```
+# overall global accessibility
+```{r}
+# calculate sum of all peaks' width in bp (a proxy for overall chromatin accessibility) for each chromosome
+HAK001_width <- list()
+HAK002_width <- list()
+for(i in 1:length(unique(seqnames(HAK001)))){
+HAK001_width[[i]] <- data.frame(seqnames=unique(seqnames(HAK001))[i], width_sum=sum(width(HAK001[seqnames(HAK001) %in% unique(seqnames(HAK001))[i], ])))
+HAK002_width[[i]] <- data.frame(seqnames=unique(seqnames(HAK002))[i], width_sum=sum(width(HAK002[seqnames(HAK002) %in% unique(seqnames(HAK002))[i], ])))
+}
+HAK001_width <- do.call(rbind, HAK001_width)
+HAK002_width <- do.call(rbind, HAK002_width)
+
+# add in column for total length in bp across the entire chromosome 
+HAK001_width$total <- xenLae2[match(HAK001_width$seqnames, xenLae2$V1), ]$V2
+HAK002_width$total <- xenLae2[match(HAK002_width$seqnames, xenLae2$V1), ]$V2
+
+# add in column for percentage of total length peaks cover in chromosome/entire chromosome length
+HAK001_width$per_access <- (HAK001_width$width_sum/HAK001_width$total)*100
+HAK002_width$per_access <- (HAK002_width$width_sum/HAK002_width$total)*100
+
+# plot percent accessibility across chromosomes
+ggplot(HAK001_width, aes(x=seqnames, y=per_access))+geom_bar(stat="identity")+ylab("% Accessibility")
+ggplot(HAK002_width, aes(x=seqnames, y=per_access))+geom_bar(stat="identity")+xlab("% Accessibility")
+
+# not sure how informative this is. Perhaps would work better if I normalized the reads based on sequencing depth. 
+```
+# Fragment Length distribution
+```{r}
+setwd("/rugpfs/fs0/fnbk_lab/store/hkonishi/testRun/")
+samplesNames <- c("test042623/atacHAK001/atacHAK001","test082223/atacHAK007/atacHAK007", "test082223/atacHAK009/atacHAK009", "test042623/atacHAK002/atacHAK002")
+# make vector of sample names (folder for each sample that gets produced from Nicole's ATAC-seq pipeline)
+samplesList <- list()
+for(i in 1:length(samplesNames)){
+  samplesList[[i]] <- read.table(paste0(samplesNames[i],"_hist_data_withoutdups.log"), skip=10, header=T) # read in hist_data_withoutdups.log file for each sample
+}
+names(samplesList) <- samplesNames
+
+# want each sample to have the same value of insert sizes from 1-1000bp (we don't want missing insert sizes because then it is hard to plot on ggplot if different samples have different axes. We will fill in the insert sizes with no reads as NA. 
+for(i in 1:length(samplesList)){
+  hist <- data.frame(insert_size=1:1000) 
+  samplesList[[i]] <- merge(hist, samplesList[[i]], by="insert_size", all=T)
+  samplesList[[i]][is.na(samplesList[[i]]$All_Reads.fr_count), ]$All_Reads.fr_count <- 0  # convert NA values to 0
+} 
+
+final_hist <- do.call(rbind, samplesList) # rbind each samples' histogram dataframe into 1 final dataframe. 
+final_hist$samples <- unlist(lapply(samplesNames, rep, 1000)) # specify samples column so that we can color ggplot by sample. 
+```
+```{r}
+logFLD <- ggplot(final_hist, aes(x=insert_size, y=log(All_Reads.fr_count), colour=samples)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_brewer(palette="Spectral") +
+   theme_bw(base_size = 10) + 
+  scale_x_continuous(n.breaks=40)+
+  geom_vline(xintercept=c(195,220))+
+  ylab("log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+FLD <- ggplot(final_hist, aes(x=insert_size, y=All_Reads.fr_count, colour=samples)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_brewer(palette="Spectral") +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=40)+
+  ylab("Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+```
