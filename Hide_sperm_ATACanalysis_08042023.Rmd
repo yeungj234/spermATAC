@@ -544,3 +544,461 @@ FLD <- ggplot(final_hist, aes(x=insert_size, y=All_Reads.fr_count, colour=sample
   ggtitle("Fragment Length Distribution of all Samples") + 
   theme(legend.position="bottom")
 ```
+
+# new shallow sequenced ATAC-seq datasets that came back on 9272023
+### #011 to 016 are freeze/non-freezing mitotic chromosome samples from 2 replicates. #011/14, no freeze, no selection; #012/15, no freeze, size-selected; #013/16, freezed, size-selected.
+
+### #017 to 022 are crosslinked samples from 2 replicates. #017/020, X-linked interphase, size-selected; #018/021, X-linked mitosis, size-selected; #019/022, non-Xlinked mitosis, size-selected
+
+#### Notes: 011-016 were mostly aligned to EColi genome. Something happened there. 017-022 were mostly aligned to Xenopus genome but still had low TSS scores. Why? 
+#### if low TSS score is driven by increased accessibility in distal regions, proportion of bam reads aligned to distal regions vs peaks found in distal regions would be similar, since these bam reads would contribute to true 
+
+
+# where are the reads aligning to? annotation of all reads vs peaks
+```{r}
+setwd("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep")
+bamfolders <-  dir(pattern="HAK")[7:12]
+bamfiles <- unlist(lapply(bamfolders, dir, pattern="trim.st.all.qft.rmdup.bam$", full.names=T))
+bams17to22 <- lapply(bamfiles, readGAlignmentPairs)
+bams17to22 <- lapply(bams17to22, granges)
+
+
+OLbams17to22 <- lapply(bams17to22, GenomicRanges::reduce)
+OLbams17to22Anno <- lapply(OLbams17to22, annotatePeak, TxDb=TxDb.Xeno)
+
+lapply(OLbams17to22Anno, plotAnnoPie, main=bamfiles)
+
+setwd("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep")
+narrowPeaks17to22 <- list()
+for(i in 1:length(OLbams17to22)){
+narrowPeaks17to22[[i]] <-  import(dir(paste0(bamfolders[i], "/peakCalls"), pattern=".narrowPeak$", full.names=T))
+}
+ 
+narrowPeaks17to22Anno <- lapply(narrowPeaks17to22, annotatePeak, TxDb=TxDb.Xeno)
+
+
+bamAnnoPlot <- c()
+narrowPeakAnnoPlot <- c()
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATACseq_pipeline_9272023/bamvsnarrowPeakAnno.pdf")
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATACseq_pipeline_9272023/bamvsnarrowPeakAnno.pdf")
+for(i in 1:length(bamfolders)){
+plotAnnoPie(OLbams17to22Anno[[i]], main=paste0(bamfolders[i], "-BAM"))
+plotAnnoPie(narrowPeaks17to22Anno[[i]], main=paste0(bamfolders[i], "-narrowPeak"))
+}
+dev.off()
+
+
+# more peaks in promoter region than if looking at all reads. This means there is a lot of low signal regions outside of promoters that did not get called as peaks. 
+```
+
+
+# OCTOBER 2023: QC METRICS ON ALL BATCHES OF ATAC-SEQ DONE FOR THE LAST 6 MONTHS
+```{r}
+# get directory paths of narrow Peak files
+peakfolders426 <- dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623", pattern="HAK")
+peakfiles426 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/", peakfolders426, "/peakCalls"), dir, pattern=".narrowPeak$", full.names=T))
+
+peakfolders713 <-  dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323", pattern="phase")
+peakfiles713 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323/", peakfolders713, "/peakCalls"), dir, pattern=".narrowPeak$$", full.names=T))
+
+peakfolders927 <-  dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep", pattern="atacHAK")
+peakfiles927 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep/", peakfolders927, "/peakCalls"), dir, pattern="narrowPeak$", full.names=T))[7:12]
+
+peakfiles <- c(peakfiles426, peakfiles713, peakfiles927) # combine all directory paths
+
+# make master peak set by merging overlapping peaks
+Peaks <- GRangesList(lapply(peakfiles, import, format="narrowPeak"))
+Peaks <- unlist(Peaks)
+Peaks <- GenomicRanges::reduce(Peaks)
+```
+
+```{r}
+# get directory paths of bam files 
+bamfiles426 <- c("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK001/atacHAK001_S1_001.trim.st.all.qft.rmdup.bam", "/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK002/atacHAK002_S2_001.trim.st.all.qft.rmdup.bam")
+
+bamfolders713 <-  dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323", pattern="phase")
+bamfiles713 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323/", bamfolders713), dir, pattern="trim.st.all.qft.rmdup.bam$", full.names=T))
+
+bamfolders927 <-  dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep", pattern="atacHAK")
+bamfiles927 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep/", bamfolders927), dir, pattern="trim.st.all.qft.rmdup.bam$", full.names=T))[7:12]
+
+bamfiles <- c(bamfiles426, bamfiles713, bamfiles927)
+```
+
+### count reads under 1Mb tiles across the genome & do PCA & Spearman correlation. 
+```{r}
+xenLae2_1Mb <- unlist(xenLae2_1Mb)
+setwd("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep")
+
+# count fragments under each bin from bam files
+Counts_tiles <- chromVAR::getCounts(bamfiles, xenLae2_1Mb, paired=TRUE, by_rg=FALSE, format="bam")
+Counts_tiles <- SummarizedExperiment::assay(Counts_tiles) # convert into counts matrix, matrix object
+# add row names based on chromosome coordinates
+row.names(Counts_tiles) <- paste0(seqnames(xenLae2_1Mb), ":", start(xenLae2_1Mb), "-", end(xenLae2_1Mb))
+# rename column names
+Counts_tiles@Dimnames[[2]] <- c("atacHAK001", "atacHAK002", bamfolders713, bamfolders927[7:12])
+
+# make metaData dataframe containing sample characteristics for input into DESeq2. 
+metaData <- data.frame(samplenames=Counts_tiles@Dimnames[[2]], Phase=c("I", "M", "I", "I", "I", "M", "M", "I", "M", "M", "I", "M", "M"), Crosslink=c(rep("No", 7), "Yes", "Yes", "No", "Yes", "Yes", "No"), batch=c("4-26", "4-26", rep("7-13", 5), rep("9-27", 6)) )
+
+# import counts matrix into DESeq object
+dds_Counts_tiles <- DESeq2::DESeqDataSetFromMatrix(countData=Counts_tiles, design= ~Phase, colData= metaData)
+dds_Counts_tiles <- estimateSizeFactors(dds_Counts_tiles) # estimate size factor to normalize samples by sequencing depth. 
+# filter out bins with low counts (threshold chosen based on 1st quartile of all counts in bins)
+keep <- rowSums(counts(dds_Counts_tiles, normalized=T)) >= 6588
+dds_Counts_tiles <- dds_Counts_tiles[keep, ]
+# rlog normalize DESeq object
+rlogdds_Counts_tiles <- rlog(dds_Counts_tiles)
+
+# plot PCA: 3 plots colored by Phase, Batch or Crosslink 
+plot_grid(
+plotPCA(rlogdds_Counts_tiles, intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlogdds_Counts_tiles,intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_tiles, intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"))
+
+# plot PCA for just crosslinked samples
+plot_grid(plotPCA(rlogdds_Counts_tiles[ ,c(8,9,11,12)], intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlogdds_Counts_tiles[ ,c(8,9,11,12)],intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_tiles[ ,c(8,9,11,12)], intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"))
+
+# make function that makes distance matrix, calculates correlation of distances between samples & clusters correlation of distances on a heatmap. 
+makesampleDistMatrix <- function(dds, method, main){
+# specify colors for annotating samples 
+hm_cols <- list(Phase=c(I="#E41A1C", M="#377EB8"), Crosslink=c(Yes="#66C2A5", No="#FC8D62"), batch=c("4-26"="#8DD3C7", "7-13"="#FFFFB3", "9-27"="#BEBADA"))
+
+sampleDists <- dist(t(assay(dds))) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDists <- as.dist(1 - sampleDists)
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <-  colnames(dds) # specify row names as sample names 
+colnames(sampleDistMatrix) <-  colnames(dds) # specify col names as sample names 
+cor.matrix <-cor(sampleDistMatrix, method=method) # measure correlation 
+return(pheatmap::pheatmap(sampleDistMatrix, main=main, annotation_row = data.frame(metaData, row.names=metaData$samplenames)[ ,-1], annotation_col = data.frame(metaData, row.names=metaData$samplenames)[ ,-1], annotation_colors = hm_cols)) # plot correlation heatmap
+
+}
+
+# make function that calculates and plots the correlation between samples (no distance calculated prior)
+makesampleCorMatrix <-  function(dds, method, main){
+hm_cols <- list(Phase=c(I="#E41A1C", M="#377EB8"), Crosslink=c(Yes="#66C2A5", No="#FC8D62"), batch=c("4-26"="#8DD3C7", "7-13"="#FFFFB3", "9-27"="#BEBADA"))
+
+cor.matrix <-cor(assay(dds), method=method) 
+return(pheatmap::pheatmap(cor.matrix, color = colorRampPalette(rev(brewer.pal(n = 7, name =
+  "RdYlBu")))(100), breaks = seq(0.85, 1,length.out = 95), main=main, annotation_row = data.frame(metaData, row.names=metaData$samplenames)[ ,-1], annotation_col = data.frame(metaData, row.names=metaData$samplenames)[ ,-1], annotation_colors = hm_cols))
+}
+
+# plot correlation:
+makesampleCorMatrix(rlogdds_Counts_peaks, method="spearman", main="Spearman Correlation")
+# plot correlation of distance measures between samples. 
+makesampleDistMatrix(rlogdds_Counts_tiles, method="pearson", main="Spearman Correlation")
+```
+### count reads under 500bp tiles (closer to an average ATACseq peak size)
+```{r}
+# tile genome into 500bp bins 
+xenLae2_500bp <- tile(xenLae2_GR, width=500)
+xenLae2_500bp <- unlist(xenLae2_500bp)
+
+setwd("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep")
+# function to count fragments under bins, rlog transform, calculate sample correlation and plot
+# count fragments under each bin from bam files
+Counts_tiles <- chromVAR::getCounts(bamfiles, xenLae2_500bp, paired=TRUE, by_rg=FALSE, format="bam")
+Counts_tiles <- SummarizedExperiment::assay(Counts_tiles) # convert into counts matrix, matrix object
+# add row names based on chromosome coordinates
+row.names(Counts_tiles) <- paste0(seqnames(xenLae2_500bp), ":", start(xenLae2_500bp), "-", end(xenLae2_500bp))
+# rename column names
+Counts_tiles@Dimnames[[2]] <- c("atacHAK001", "atacHAK002", bamfolders713, bamfolders927[7:12])
+
+# import counts matrix into DESeq object
+dds_Counts_tiles <- DESeq2::DESeqDataSetFromMatrix(countData=Counts_tiles, design= ~Phase, colData= metaData)
+dds_Counts_tiles <- estimateSizeFactors(dds_Counts_tiles) # estimate size factor to normalize samples by sequencing depth. 
+# filter out bins with low number of reads
+keep <- rowSums(counts(dds_Counts_tiles, normalized=T)) >= 2.117 # this number is the first quartile
+dds_Counts_tiles <- dds_Counts_tiles[keep, ]
+# rlog normalize DESeq object
+rlogdds_Counts_tiles <- rlog(dds_Counts_tiles)
+
+# plot PCA: 3 plots colored by Phase, Batch or Crosslink  
+plot_grid(
+plotPCA(rlogdds_Counts_tiles, intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlogdds_Counts_tiles,intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_tiles, intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"))
+
+# plot correlation of distance measures between samples. 
+makesampleDistMatrix(rlogdds_Counts_tiles, method="spearman", main="Spearman Correlation")
+
+# try again with a higher cutoff threshold for counts in bins 
+dds_Counts_tiles <- DESeq2::DESeqDataSetFromMatrix(countData=Counts_tiles, design= ~Phase, colData= metaData)
+dds_Counts_tiles <- estimateSizeFactors(dds_Counts_tiles)
+keep <- rowSums(counts(dds_Counts_tiles, normalized=T)) >= 4.926 # this number is the mean. 
+# rlog normalize higher thresholded counts
+rlog_dds_Counts_tiles_highthres <- rlogdds_Counts_tiles[row.names(rlogdds_Counts_tiles) %in% names(keep[keep == T]), ]
+
+# plot PCA: 3 plots colored by Phase, Batch or Crosslink for higher cut off for bins to keep 
+plot_grid(
+plotPCA(rlog_dds_Counts_tiles_highthres, intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlogdds_Counts_tiles,intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_tiles, intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"))
+
+# plot correlation of distance measures between samples. 
+makesampleDistMatrix(rlog_dds_Counts_tiles_highthres, method="spearman", main="Spearman Correlation under 500bp tiles")
+```
+
+### count reads under peaks 
+```{r}
+# count fragments under each peak from bam files
+Counts_peaks <- chromVAR::getCounts(bamfiles, Peaks, paired=TRUE, by_rg=FALSE, format="bam")
+
+Counts_peaks <- SummarizedExperiment::assay(Counts_peaks) # convert into counts matrix, matrix object
+# add row names based on chromosome coordinates
+row.names(Counts_peaks) <- paste0(seqnames(Peaks), ":", start(Peaks), "-", end(Peaks))
+# rename column names
+Counts_peaks@Dimnames[[2]] <- c("atacHAK001", "atacHAK002", bamfolders713, bamfolders927[7:12])
+
+# import counts matrix into DESeq object
+dds_Counts_peaks <- DESeq2::DESeqDataSetFromMatrix(countData=Counts_peaks, design= ~Phase, colData= metaData)
+dds_Counts_peaks <- estimateSizeFactors(dds_Counts_peaks) # estimate size factor to normalize samples by sequencing depth. 
+keep <- rowSums(counts(dds_Counts_peaks, normalized=T)) >= 3.35 # this number is the first quartile 
+dds_Counts_peaks <- dds_Counts_peaks[keep, ]
+
+# rlog normalize DESeq object
+rlogdds_Counts_peaks <- rlog(dds_Counts_peaks)
+
+# plot PCA: 3 plots colored by Phase, Batch or Crosslink
+plot_grid(
+plotPCA(rlogdds_Counts_peaks, intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlogdds_Counts_peaks,intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_peaks, intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"), labels="PCA for Counts under Peaks")
+
+# plot PCA on just crosslinked samples
+plot_grid(plotPCA(rlogdds_Counts_peaks[ ,c(8,9,11,12)], intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlogdds_Counts_peaks[ ,c(8,9,11,12)],intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_peaks[ ,c(8,9,11,12)], intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"))
+
+# plot correlation of distance measures between samples. 
+makesampleDistMatrix(rlogdds_Counts_peaks, method="spearman", main="Spearman Correlation")
+```
+
+# save correlation and PCAs to pdf
+```{r}
+pdf("PCA_correlation.pdf")
+makesampleDistMatrix(rlogdds_Counts_peaks, method="pearson", main="Pearson Correlation for counts under peaks")
+makesampleDistMatrix(rlogdds_Counts_peaks, method="spearman", main="Spearman Correlation for counts under peaks")
+makesampleDistMatrix(rlogdds_Counts_tiles, method="pearson", main="Pearson Correlation for counts under 500bp tiles")
+makesampleDistMatrix(rlogdds_Counts_tiles, method="spearman", main="Spearman Correlation for counts under 500bp tiles")
+
+plot_grid(
+plotPCA(rlogdds_Counts_peaks, intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlogdds_Counts_peaks,intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_peaks, intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"), labels="PCA for Counts under Peaks")
+
+# plot PCA for 500bp bins with counts => Mean
+plot_grid(
+plotPCA(rlog_dds_Counts_tiles_highthres, intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlog_dds_Counts_tiles_highthres,intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_tiles, intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"))
+
+# plot correlation for 500bp bins with counts => Mean: 
+makesampleDistMatrix(rlog_dds_Counts_tiles_highthres, method="spearman", main="Spearman Correlation under 500bp tiles")
+
+dev.off()
+```
+### plot counts of top differential peaks between I and M phase. 
+```{r}
+# specify colors for annotating samples 
+hm_cols <- list(Phase=c(I="#E41A1C", M="#377EB8"), Crosslink=c(Yes="#66C2A5", No="#FC8D62"), batch=c("4-26"="#8DD3C7", "7-13"="#FFFFB3", "9-27"="#BEBADA"))
+
+# perform DESeq
+dds_Counts_peaks <- DESeq(dds_Counts_peaks)
+# get DESeq results 
+res <- results(dds_Counts_peaks)
+
+# plot counts for top 6 peaks with most significant pval. 
+d <- list()
+d_ggplots <- list()
+for(i in 1:6){
+d[[i]] <- plotCounts(dds_Counts_peaks, gene=order(res$padj)[i], intgroup="Phase", 
+                returnData=TRUE) 
+# aadd metaData info
+d[[i]] <- cbind(d[[i]], metaData[match(row.names(d[[i]]), metaData$samplenames), c("Crosslink" ,"batch")])
+# make ggplots
+d_ggplots[[i]] <- ggplot(d[[i]], aes(x=Phase, y=count, color=batch)) + 
+  geom_point(position=position_jitter(w=0.1,h=0)) + 
+  scale_y_log10(breaks=c(25,100,400))+ggtitle(row.names(res[order(res$padj), ])[i])+scale_color_manual(values=c("4-26"="#8DD3C7", "7-13"="#FFFFB3", "9-27"="#BEBADA"))
+}
+# combine plots into 1 plot
+d_plots <- plot_grid(d_ggplots[[1]], d_ggplots[[2]], d_ggplots[[3]], d_ggplots[[4]], d_ggplots[[5]], d_ggplots[[6]], nrow=3, ncol=2)
+d_plots
+```
+
+# fragments in peaks
+```{r}
+# plot normalized counts under peaks as scatterplot where x axis is I phase counts and y axis is M phase counts. doing this in ggplot so I can color by Crosslinked vs not crosslinked samples. 
+Counts_peaks_df <- as.data.frame(counts(dds_Counts_peaks, normalized=T))
+Counts_peaks_IvsM <- data.frame(I_counts=c(Counts_peaks_df$atacHAK001, Counts_peaks_df$IphaseA, Counts_peaks_df$IphaseB, Counts_peaks_df$atacHAK017, Counts_peaks_df$atacHAK020),
+                                
+                                M_counts=c(Counts_peaks_df$atacHAK002, Counts_peaks_df$MphaseA, Counts_peaks_df$MphaseB, Counts_peaks_df$atacHAK018, Counts_peaks_df$atacHAK021),
+                                
+                                peaks=rep(row.names(Counts_peaks_df), 5),
+                                
+                                samples_I=c(rep("atacHAK001", nrow(Counts_peaks_df)), rep("IphaseA", nrow(Counts_peaks_df)), rep("IphaseB", nrow(Counts_peaks_df)), rep("atacHAK017", nrow(Counts_peaks_df)), rep("atacHAK020", nrow(Counts_peaks_df))), 
+                                            
+                                samples_M=c(rep("atacHAK002", nrow(Counts_peaks_df)), rep("MphaseA", nrow(Counts_peaks_df)), rep("MphaseB", nrow(Counts_peaks_df)), rep("atacHAK018", nrow(Counts_peaks_df)), rep("atacHAK021", nrow(Counts_peaks_df))), 
+                                Crosslink=c(rep("No", 3*nrow(Counts_peaks_df)), rep("Yes", 2*nrow(Counts_peaks_df)))
+                                            )
+
+# plot scatterplots and save to jpeg
+jpeg("Counts_in_peaks.jpeg", res=300, height=850*3, width=1100*3)
+# normalized counts
+ggplot(Counts_peaks_IvsM, aes(x=I_counts, y=M_counts, color=Crosslink))+geom_point(size=2, alpha=1/2)+theme(text = element_text(size=20))+ggtitle("normalized counts in peaks-I vs M")
+dev.off()
+# normalized counts log2 transformed. 
+jpeg("log2Counts_in_peaks.jpeg", res=300, height=850*3, width=1100*3)
+ggplot(Counts_peaks_IvsM, aes(x=(log2(I_counts)+1), y=(log2(M_counts)+1), color=Crosslink))+geom_point(size=2, alpha=1/2)+theme(text = element_text(size=20))+ggtitle("log2(normalized counts) + 1 in peaks-I vs M")
+dev.off()
+
+# crosslinking affects counts of some peaks... 
+```
+
+```{r}
+# plot normalized counts under peaks as scatterplot where x axis is I phase counts and y axis is M phase counts with base R plot. 
+
+# extract normalized counts
+normCounts_peaks <- counts(dds_Counts_peaks, normalized=T) 
+normCounts_peaks_IvsM <- matrix(ncol=2, nrow=nrow(normCounts_peaks))
+# sum up all counts across I phase 
+normCounts_peaks_IvsM[ ,1] <- apply(normCounts_peaks[ ,colnames(normCounts_peaks) %in% metaData[metaData$Phase %in% "I", ]$samplenames], 1, sum)
+# sum up all counts across M phase 
+normCounts_peaks_IvsM[ ,2] <- apply(normCounts_peaks[ ,colnames(normCounts_peaks) %in% metaData[metaData$Phase %in% "M", ]$samplenames], 1, sum)
+# rename rows and columns
+row.names(normCounts_peaks_IvsM) <- row.names(normCounts_peaks)
+colnames(normCounts_peaks_IvsM) <- c("Interphase", "Mphase")
+
+# plot I phase counts vs M phase counts 
+plot((log2(normCounts_peaks_IvsM)+1), pch=20, cex=0.5, main="sum of log2(normalized counts)+1 in peaks-I vs M phase" )
+plot(normCounts_peaks_IvsM, pch=20, cex=0.5, main="sum of normalized counts in peaks-I vs M phase")
+```
+
+# ANNOTATE PEAK
+```{r}
+peakAnno <- annotatePeak(Peaks, TxDb=TxDb.Xeno)
+plotAnnoPie(peakAnno)
+# note that peaks with low counts were not filtered out in this case. should do that next time to keep only true peaks. 
+# annotate peaks in Interphase samples
+Peaks_I <- GRangesList(lapply(peakfiles[which(metaData$Phase %in% "I")], import, format="narrowPeak"))
+Peaks_I <- unlist(Peaks_I)
+Peaks_I <- GenomicRanges::reduce(Peaks_I)
+Peaks_I_Anno <- annotatePeak(Peaks_I, TxDb=TxDb.Xeno)
+plotAnnoPie(Peaks_I_Anno)
+
+# annotate peaks in Mphase samples
+PeaksM <- GRangesList(lapply(peakfiles[which(metaData$Phase %in% "M")], import, format="narrowPeak"))
+PeaksM <- unlist(PeaksM)
+PeaksM <- GenomicRanges::reduce(PeaksM)
+PeaksM_Anno <- annotatePeak(PeaksM, TxDb=TxDb.Xeno)
+plotAnnoPie(PeaksM_Anno)
+```
+
+# PLOT FRAGMENT LENGTH DISTRIBUTIONS: 
+#### hist_data_withoutdups.log (output from Nicole's CUTnTag pipeline) from all of the samples to generate histograms of fragment size distributions & summary violin plots. 
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/CUTnTag_MCF7_LS8817_1")
+
+FLD <- list()
+peakfolders <- c(peakfolders426, peakfolders713, peakfolders927[7:12])
+FLD_files <- paste0(gsub("(peakCalls).*", "", peakfiles), peakfolders, "_hist_data_withoutdups.log")
+for(i in 1:length(FLD_files)){
+  FLD[[i]] <- read.table(FLD_files[i], skip=10, header=T) # read in hist_data_withoutdups.log file for each sample
+}
+names(FLD) <- peakfolders
+
+# want each sample to have the same value of insert sizes from 1-1000bp (we don't want missing insert sizes because then it is hard to plot on ggplot if different samples have different axes. We will fill in the insert sizes with no reads as NA. 
+for(i in 1:length(FLD)){
+  hist <- data.frame(insert_size=1:1000) 
+  FLD[[i]] <- merge(hist, FLD[[i]], by="insert_size", all=T)
+} 
+final_hist <- do.call(rbind, FLD) # rbind each samples' histogram dataframe into 1 final dataframe. 
+final_hist$samplesnames <- unlist(lapply(names(FLD), rep, 1000)) # specify samples column so that we can color ggplot by sample. 
+
+final_hist <- cbind(final_hist, metaData[match(final_hist$samplesnames, metaData$samplenames), c("Phase", "Crosslink", "batch")])
+
+# ggplot fragment length distribution histogram: 
+FLD_Plot <- ggplot(final_hist, aes(x=insert_size, y=log10(All_Reads.fr_count), colour=Phase)) + 
+  facet_grid(Crosslink~batch, scales = "free", space = "free")+
+  geom_line(size=0.1, alpha=0.7) +
+    scale_color_viridis(discrete = TRUE, begin = 0.1, end = 0.9, option = "magma") +
+   theme_bw(base_size = 10) + 
+  ylab("log10(Count)") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom", text=element_text(size=18))
+```
+
+
+# save to pdf
+```{r}
+pdf("FLD_CountsinPeaks_peakAnno.pdf")
+# fragment length distribution
+FLD_Plot
+
+# counts in peak I vs M phase scatterplot
+plot((log2(normCounts_peaks_IvsM)+1), pch=20, cex=0.1, main="sum of log2(normalized counts)+1 in peaks-I vs M phase" )
+plot(normCounts_peaks_IvsM, pch=20, cex=0.1, main="sum of normalized counts in peaks-I vs M phase")
+
+# peak Annotation
+plotAnnoPie(peakAnno, main="All Peaks (86082)")
+plotAnnoPie(Peaks_I_Anno, main="Interphase Peaks (82313)")
+plotAnnoPie(PeaksM_Anno, main="M Phase Peaks (11834)")
+
+# FRIP plot
+ggplot(counts_in_peaks, aes(x=samplenames, y=FRIP, fill=Crosslink))+geom_bar(stat="identity")+facet_wrap(~Phase, scales="free_x")+ggtitle("% Reads in Peaks")+theme_bw()
+
+dev.off()
+
+pdf("FLD.pdf", width=15, height=6)
+FLD_Plot
+dev.off()
+```
+# general QC summary stats from pipeline
+```{r}
+# general QC metrics read in
+ATAC_Summary <- rbind(read.table("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/ATACseqRunSummary.log",skip=39, header=T, skipNul = TRUE), read.table("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323/ATACseqRunSummary.log",skip=39, header=T, skipNul = TRUE), read.table("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep/ATACseqRunSummary.log",skip=39, header=T, skipNul = TRUE) )[-c(8:13), ]
+
+# convert these statistics to numeric format
+ATAC_Summary$PERCENT_ALIGNED <- as.numeric(gsub("%", "", ATAC_Summary$PERCENT_ALIGNED))
+ATAC_Summary$PERCENT_DUPLICATED <- as.numeric(gsub("%", "", ATAC_Summary$PERCENT_DUPLICATED))
+ATAC_Summary$PERCENT_MITOCHONDRIAL <- as.numeric(gsub("%", "", ATAC_Summary$PERCENT_MITOCHONDRIAL))
+ATAC_Summary$AVG_MYCOPLASMA_MAP <- as.numeric(gsub("%", "", ATAC_Summary$AVG_MYCOPLASMA_MAP))
+ATAC_Summary$ADAPTER_MAP <- as.numeric(gsub("%", "", ATAC_Summary$ADAPTER_MAP))
+
+# include metaData information 
+ATAC_Summary <- cbind(ATAC_Summary, metaData[match(ATAC_Summary$SAMPLE, metaData$samplenames), ])
+
+# plot TSS scores 
+TSSscore <- ggplot(ATAC_Summary, aes(x=SAMPLE, y=PEAK_INSERTIONS_TSS, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") + 
+  ylab("")+
+  ggtitle("TSS insertion score") +
+theme_bw(base_size = 18) + 
+theme(axis.text.x=element_text(angle=-90))
+TSSscore
+
+# count sum of all reads in peaks (from chromVAR counts in peaks)
+# count number of total reads (sum of all reads counted by chromVAR in tiles)
+counts_in_peaks <- data.frame(samplenames= names(apply(Counts_peaks, 2, sum)), counts_in_peaks= apply(Counts_peaks, 2, sum), total_counts= apply(assays(dds_Counts_tiles)[[1]], 2, sum))
+# calculate FrIP score
+counts_in_peaks$FRIP <- (counts_in_peaks$counts_in_peaks/counts_in_peaks$total_counts)*100
+# include metadata info
+counts_in_peaks <- merge(counts_in_peaks, metaData, by="samplenames")
+
+# plot FRiP scores 
+FRIP <- ggplot(counts_in_peaks, aes(x=samplenames, y=FRIP, fill=Phase))+geom_bar(stat="identity")+facet_grid(~batch, scales="free_x")+ggtitle("% Reads in Peaks")+theme_bw(base_size = 18) + 
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+theme(axis.text.x=element_text(angle=-90))
+
+# plot sequencing depth after filtering
+FilteredReads <- ggplot(ATAC_Summary, aes(x=SAMPLE, y=READ_PAIRS_POST_FILTER, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") +
+  ylab("Number of Post-filtered Read Pairs") + 
+  ggtitle("Sequencing Depth after filtering") +
+ylim(0,7500000)+
+theme_bw(base_size = 18) +
+theme(axis.text.x=element_text(angle=-90))
+FilteredReads 
+```
+
+
