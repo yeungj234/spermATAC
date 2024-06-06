@@ -116,7 +116,7 @@ xenLae2_tiles <- tile(xenLae2_GR, width=10000000)
 xenLae2_tiles
 # use tile function to create bins of 5Mb for the Xenopus genome
 xenLae2_5Mb <- tile(xenLae2_GR, width=5000000)
-# use tile function to create bins of 5Mb for the Xenopus genome
+# use tile function to create bins of 1Mb for the Xenopus genome
 xenLae2_1Mb <- tile(xenLae2_GR, width=1000000)
 ```
 

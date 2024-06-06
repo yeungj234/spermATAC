@@ -1,0 +1,419 @@
+---
+title: "Hide_sperm_ATAC_QC_11302023"
+author: "Joanna Yeung"
+date: '2023-11-30'
+output: html_document
+---
+
+# general QC summary stats from pipeline
+```{r}
+library(ggplot2)
+library(cowplot)
+library(rtracklayer)
+library(DESeq2)
+library(ggrepel)
+library(GenomicRanges)
+library(GenomicFeatures)
+```
+
+```{r}
+# general QC metrics read in from previous ATAC-seq samples Hide did
+ATAC_Summary <- rbind(read.table("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/ATACseqRunSummary.log",skip=39, header=T, skipNul = TRUE), read.table("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323/ATACseqRunSummary.log",skip=39, header=T, skipNul = TRUE), read.table("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep/ATACseqRunSummary.log",skip=39, header=T, skipNul = TRUE))[-c(8:13), ]
+
+# general QC metrics added from most recent samples Hide did (November 2023)
+ATAC_Summary <- rbind(ATAC_Summary,read.table("/rugpfs/fs0/fnbk_lab/store/hkonishi/testRun/test112723v2/ATACseqRunSummary.log",skip=39, header=T, skipNul = TRUE)[-c(6:13), ] )
+
+# make metaData dataframe containing sample characteristics for input into DESeq2. 
+metaData <- data.frame(samplenames=ATAC_Summary$SAMPLE, Phase=c("I", "M", "I", "I", "I", "M", "M", "I", "M", "M", "I", "M", "M", "I", "I", "I", "M", "M"), Crosslink=c(rep("No", 7), "Yes", "Yes", "No", "Yes", "Yes", "No", rep("No", 5)), batch=c("4-26", "4-26", rep("7-13", 5), rep("9-27", 6), rep("11-27", 5)))
+
+# convert these statistics to numeric format
+ATAC_Summary$PERCENT_ALIGNED <- as.numeric(gsub("%", "", ATAC_Summary$PERCENT_ALIGNED))
+ATAC_Summary$PERCENT_DUPLICATED <- as.numeric(gsub("%", "", ATAC_Summary$PERCENT_DUPLICATED))
+ATAC_Summary$PERCENT_MITOCHONDRIAL <- as.numeric(gsub("%", "", ATAC_Summary$PERCENT_MITOCHONDRIAL))
+ATAC_Summary$AVG_MYCOPLASMA_MAP <- as.numeric(gsub("%", "", ATAC_Summary$AVG_MYCOPLASMA_MAP))
+ATAC_Summary$ADAPTER_MAP <- as.numeric(gsub("%", "", ATAC_Summary$ADAPTER_MAP))
+
+# include metaData information 
+ATAC_Summary <- cbind(ATAC_Summary, metaData[match(ATAC_Summary$SAMPLE, metaData$samplenames), ])
+write.csv(ATAC_Summary, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_Summary_all.csv")
+```
+
+```{r}
+# plot sequencing depth after filtering. 
+FilteredReads <- ggplot(ATAC_Summary, aes(x=SAMPLE, y=READ_PAIRS_POST_FILTER, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") +
+  ylab("Post-filtered Read Pairs")+
+ylim(0,14000000)+
+theme_bw(base_size = 18) +
+theme(axis.text.x=element_text(angle=-90))
+FilteredReads 
+# plot sequencing depth before filtering
+RawReads <- ggplot(ATAC_Summary, aes(x=SAMPLE, y=RAW_READ_PAIRS, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") +
+  ylab("Raw Read Pairs") +
+  ylim(0,14000000)+
+theme_bw(base_size = 18) +
+theme(axis.text.x=element_text(angle=-90))
+RawReads 
+
+plot_grid(FilteredReads, RawReads, labels=c("Post-filtered vs Raw Reads"))
+
+LibComplexity <- ggplot(ATAC_Summary, aes(x=SAMPLE, y=ESTIMATED_LIBRARY_SIZE, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") +
+  ylab("Estimated Library Complexity") +
+  ylim(0,max(ATAC_Summary$ESTIMATED_LIBRARY_SIZE))+
+theme_bw(base_size = 18) +
+theme(axis.text.x=element_text(angle=-90))
+LibComplexity 
+
+LibComplexity2 <- ggplot(ATAC_Summary[!ATAC_Summary$batch %in% "4-26", ], aes(x=SAMPLE, y=ESTIMATED_LIBRARY_SIZE, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") +
+  ylab("Estimated Library Complexity") +
+  ylim(0,max(ATAC_Summary[!ATAC_Summary$batch %in% "4-26", ]$ESTIMATED_LIBRARY_SIZE))+
+theme_bw(base_size = 18) +
+theme(axis.text.x=element_text(angle=-90))
+LibComplexity2 
+
+plot_grid(LibComplexity, LibComplexity2)
+
+# plot TSS scores 
+TSSscore <- ggplot(ATAC_Summary, aes(x=SAMPLE, y=PEAK_INSERTIONS_TSS, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") + 
+  ylab("")+
+  ggtitle("TSS insertion score") +
+theme_bw(base_size = 18) + 
+theme(axis.text.x=element_text(angle=-90))
+TSSscore
+
+Mito <- ggplot(ATAC_Summary, aes(x=SAMPLE, y=PERCENT_MITOCHONDRIAL, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") +
+  ylab("% Mitochondrial Reads") +
+  ylim(0,max(ATAC_Summary$PERCENT_MITOCHONDRIAL))+
+theme_bw(base_size = 18) +
+theme(axis.text.x=element_text(angle=-90))
+Mito
+```
+
+```{r}
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Figures/11272023/Reads_LibraryComplexity_ATAC_QC_11272023.pdf", width=15, height=5)
+plot_grid(FilteredReads, RawReads)
+plot_grid(LibComplexity, LibComplexity2)
+dev.off()
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Figures/11272023/PercentMito_TSSscore_ATAC_QC_11272023.pdf", width=7, height=4)
+Mito
+TSSscore
+dev.off()
+```
+
+```{r}
+SeqQC <- data.frame(Proportion_PostFiltered=(ATAC_Summary$READ_PAIRS_POST_FILTER/ATAC_Summary$RAW_READ_PAIRS), ProportionFilterReads_LibComplex=(ATAC_Summary$ESTIMATED_LIBRARY_SIZE/ATAC_Summary$READ_PAIRS_POST_FILTER))
+SeqQC <- cbind(ATAC_Summary[ , c("samplenames", "Phase", "Crosslink", "batch")], SeqQC)
+
+# % post filtered reads relative to raw reads. This will tell us how many reads we are losing after filtering. 
+PostFiltervsRaw <- ggplot(SeqQC, aes(x=samplenames, y=Proportion_PostFiltered*100, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") +
+  ylab("% Post filtered Reads/Raw Reads") +
+  ylim(0,100)+
+theme_bw(base_size = 18) +
+theme(axis.text.x=element_text(angle=-90))
+PostFiltervsRaw
+
+# determine how estimated library size compares to post filtered reads. the input into picard for figuring out estimated library size are from post-filtered reads. So calculating for deeper sequencing will be based on post filtered read numbers 
+FilterReadsvsLibComplex <- ggplot(SeqQC, aes(x=samplenames, y=ProportionFilterReads_LibComplex, fill=Phase))+
+  geom_bar(stat="identity")+
+  facet_grid(~batch, scales="free_x")+
+  scale_fill_manual(values=c(I="#E41A1C", M="#377EB8"))+
+  xlab("Sample") +
+  ylab("Estimated Library Size/Filtered Reads") +
+theme_bw(base_size = 18) +
+theme(axis.text.x=element_text(angle=-90))+
+  geom_hline(yintercept=1)
+FilterReadsvsLibComplex
+
+pdf(file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Figures/11272023/SeqQC.pdf", width=7, height=4)
+PostFiltervsRaw
+FilterReadsvsLibComplex
+dev.off()
+```
+
+
+# MAKE MASTER PEAK SET ACROSS ALL BIOLOGICAL REPLICATES
+```{r}
+# get directory paths of narrow Peak files
+peakfolders426 <- dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623", pattern="HAK")
+peakfiles426 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/", peakfolders426, "/peakCalls"), dir, pattern=".narrowPeak$", full.names=T))
+
+peakfolders713 <-  dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323", pattern="phase")
+peakfiles713 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323/", peakfolders713, "/peakCalls"), dir, pattern=".narrowPeak$$", full.names=T))
+
+peakfolders927 <-  dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep", pattern="atacHAK")
+peakfiles927 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep/", peakfolders927, "/peakCalls"), dir, pattern="narrowPeak$", full.names=T))[7:12]
+
+peakfolders1127 <-  dir("/rugpfs/fs0/fnbk_lab/store/hkonishi/testRun/test112723v2/", pattern="atacHAK")[-c(6:13)]
+peakfiles1127 <- unlist(lapply(paste0("/rugpfs/fs0/fnbk_lab/store/hkonishi/testRun/test112723v2/", peakfolders1127, "/peakCalls"), dir, pattern="narrowPeak$", full.names=T))
+
+peakfiles <- c(peakfiles426, peakfiles713, peakfiles927, peakfiles1127) # combine all directory paths
+
+# make master peak set by merging overlapping peaks
+Peaks <- GRangesList(lapply(peakfiles, import, format="narrowPeak"))
+Peaks <- unlist(Peaks)
+Peaks <- GenomicRanges::reduce(Peaks)
+library(rtracklayer)
+export.bed(Peaks, con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/beds/Peaks_11272023.bed")
+```
+
+```{r}
+# compare I vs M phase peaks
+
+I_peakfiles <- peakfiles[unlist(lapply(ATAC_Summary[ATAC_Summary$Phase %in% "I", ]$SAMPLE, grep, peakfiles))]
+I_Peaks <- GRangesList(lapply(I_peakfiles, import, format="narrowPeak"))
+I_Peaks <- unlist(I_Peaks)
+I_Peaks <- GenomicRanges::reduce(I_Peaks)
+export.bed(I_Peaks, con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/beds/I_Peaks_11272023.bed")
+
+M_peakfiles <- peakfiles[unlist(lapply(ATAC_Summary[ATAC_Summary$Phase %in% "M", ]$SAMPLE, grep, peakfiles))]
+M_Peaks <- GRangesList(lapply(M_peakfiles, import, format="narrowPeak"))
+M_Peaks <- unlist(M_Peaks)
+M_Peaks <- GenomicRanges::reduce(M_Peaks)
+export.bed(M_Peaks, con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/beds/M_Peaks_11272023.bed")
+
+library(ChIPseeker)
+library(GenomicFeatures)
+# make TxDb object from Xenopus Laevis gtf file
+TxDb.Xeno <- makeTxDbFromGFF("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+
+# annotate peaks in interphase samples 
+peakAnno_I <- annotatePeak(I_Peaks, TxDb=TxDb.Xeno)
+# annotate peaks in M phase samples 
+peakAnno_M <- annotatePeak(M_Peaks, TxDb=TxDb.Xeno)
+# annotate peaks overlapping in both phases 
+peakAnno_IandM <- annotatePeak(M_Peaks[M_Peaks %over% I_Peaks], TxDb=TxDb.Xeno)
+
+# plot peak annotation
+pdf(file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Figures/11272023/plotAnnoPie_11272023.pdf", width=6, height=3)
+plotAnnoPie(peakAnno_I, main=paste("Interphase Peaks:", length(I_Peaks))) # interphase peaks
+plotAnnoPie(peakAnno_M, main=paste("Interphase Peaks:", length(M_Peaks))) # M phase peaks 
+plotAnnoPie(peakAnno_IandM, main=paste("Overlapping Peaks:", length(M_Peaks[M_Peaks %over% I_Peaks]))) # overlapping peaks
+dev.off()
+```
+
+```{r}
+# get directory paths of bam files 
+bamfiles426 <- c("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK001/atacHAK001_S1_001.trim.st.all.qft.rmdup.bam", "/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test042623/atacHAK002/atacHAK002_S2_001.trim.st.all.qft.rmdup.bam")
+
+bamfolders713 <-  dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323", pattern="phase")
+bamfiles713 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test071323/", bamfolders713), dir, pattern="trim.st.all.qft.rmdup.bam$", full.names=T))
+
+bamfolders927 <-  dir("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep", pattern="atacHAK")
+bamfiles927 <- unlist(lapply(paste0("/lustre/fs4/fnbk_lab/store/hkonishi/testRun/test092723sep/", bamfolders927), dir, pattern="trim.st.all.qft.rmdup.bam$", full.names=T))[7:12]
+
+bamfolders1127 <-  dir("/rugpfs/fs0/fnbk_lab/store/hkonishi/testRun/test112723v2/", pattern="atacHAK")[-c(6:13)]
+bamfiles1127 <- unlist(lapply(paste0("/rugpfs/fs0/fnbk_lab/store/hkonishi/testRun/test112723v2/", bamfolders1127), dir, pattern="trim.st.all.qft.rmdup.bam$", full.names=T))
+
+bamfiles <- c(bamfiles426, bamfiles713, bamfiles927, bamfiles1127)
+
+# count fragments under each peak from bam files
+Counts_peaks <- chromVAR::getCounts(bamfiles, Peaks, paired=TRUE, by_rg=FALSE, format="bam")
+
+Counts_peaks <- SummarizedExperiment::assay(Counts_peaks) # convert into counts matrix, matrix object
+# add row names based on chromosome coordinates
+row.names(Counts_peaks) <- paste0(seqnames(Peaks), ":", start(Peaks), "-", end(Peaks))
+# rename column names
+Counts_peaks@Dimnames[[2]] <- ATAC_Summary$SAMPLE
+
+# import counts matrix into DESeq object
+dds_Counts_peaks <- DESeq2::DESeqDataSetFromMatrix(countData=Counts_peaks, design= ~Phase, colData= metaData)
+dds_Counts_peaks <- estimateSizeFactors(dds_Counts_peaks) # estimate size factor to normalize samples by sequencing depth. 
+keep <- rowSums(counts(dds_Counts_peaks, normalized=T)) >= 13.76 # this number is the first quartile 
+dds_Counts_peaks <- dds_Counts_peaks[keep, ]
+```
+
+```{r}
+# rlog normalize DESeq object
+rlogdds_Counts_peaks <- rlog(dds_Counts_peaks)
+
+# plot PCA: 3 plots colored by Phase, Batch or Crosslink. plotPCA function only does PCA on the top 500 most variable peaks 
+# rlog normalized counts
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Figures/11272023/plotPCAfunc_11272023.pdf", width=8, height=7)
+plot_grid(
+plotPCA(rlogdds_Counts_peaks, intgroup="Phase") +theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(rlogdds_Counts_peaks,intgroup="Crosslink")+theme_classic()+geom_point(size=2)+scale_color_brewer(palette="Pastel1")+ggtitle("Crosslink"), 
+plotPCA(rlogdds_Counts_peaks, intgroup="batch") +theme_classic()+geom_point(size=2)+ggtitle("batch"), labels="PCA for rlog normalized Counts under Peaks")
+
+
+# log2 transformed counts on sequence normalized counts
+plot_grid(
+plotPCA(DESeqTransform(SummarizedExperiment(log2(counts(dds_Counts_peaks, normalized=TRUE) + 1), colData=colData(dds_Counts_peaks))), intgroup="Phase")+theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(DESeqTransform(SummarizedExperiment(log2(counts(dds_Counts_peaks, normalized=TRUE) + 1), colData=colData(dds_Counts_peaks))), intgroup="Crosslink")+theme_classic()+geom_point(size=2)+ggtitle("Crosslink"), 
+plotPCA(DESeqTransform(SummarizedExperiment(log2(counts(dds_Counts_peaks, normalized=TRUE) + 1), colData=colData(dds_Counts_peaks))), intgroup="batch")+theme_classic()+geom_point(size=2)+ggtitle("batch"), labels="PCA for log2 transformed Counts under Peaks")
+
+# raw sequence normalized counts
+plot_grid(
+plotPCA(DESeqTransform(SummarizedExperiment(counts(dds_Counts_peaks, normalized=TRUE), colData=colData(dds_Counts_peaks))), intgroup="Phase")+theme_classic()+geom_point(size=2)+ggtitle("Phase"), plotPCA(DESeqTransform(SummarizedExperiment(counts(dds_Counts_peaks, normalized=TRUE), colData=colData(dds_Counts_peaks))), intgroup="Crosslink")+theme_classic()+geom_point(size=2)+ggtitle("Crosslink"), 
+plotPCA(DESeqTransform(SummarizedExperiment(counts(dds_Counts_peaks, normalized=TRUE), colData=colData(dds_Counts_peaks))), intgroup="batch")+theme_classic()+geom_point(size=2)+ggtitle("batch"), labels="PCA for raw sequence normalized Counts under Peaks")
+dev.off()
+```
+
+# how to get plotPCA results with prcomp instead. 
+```{r}
+# why is plotPCA's result different from prcomp? plotPCA only plots the top 500 peaks with the most variance across samples. if we run this code, we get the same result with prcomp. 
+ntop <- 500
+rv <- rowVars(counts(dds_Counts_peaks, normalized=T))
+select <- order(rv, decreasing = TRUE)[seq_len(min(ntop, length(rv)))]
+mat <- t(counts(dds_Counts_peaks, normalized=T)[select, ] )
+
+pca_result <-prcomp(mat)
+
+# pca_result$x is where the sample is located in PCA space. 
+pca_result_df <- as.data.frame(pca_result$x)
+VarianceExplained <- as.integer((pca_result$sdev^2 / sum(pca_result$sdev^2))*100) # variance explained by each PC 
+
+pca_result_df <- cbind(pca_result_df, metaData) # include variables associated with samples
+
+# PC1 vs PC2
+ggplot(data=pca_result_df) + geom_point(aes(x=PC1, y=PC2, color=Phase, shape=batch))+geom_text_repel(aes(x=PC1, y=PC2, label=samplenames))+xlab(paste0("PC1: ", VarianceExplained[1], "% Variance Explained"))+ylab(paste0("PC2: ", VarianceExplained[2], "% Variance Explained"))+theme_classic()
+
+# plot PC vs phase
+pcavsphase <- list()
+for(i in 1:ncol(pca_result$x)){
+pcavsphase[[i]] <- ggplot(data=pca_result_df) + geom_point(aes_string(x="Phase", y=paste0("PC", i), color="batch", shape="Crosslink"))+theme_bw()+ylab(paste0("PC", i, ": ", VarianceExplained[i], "% Variance Explained"))
+}
+```
+
+# perform PCA using prcomp (on all peaks instead of top 500 most variable across samples)
+```{r}
+scaled_data <- scale(t(counts(dds_Counts_peaks, normalized=T)))
+pca_result <- prcomp(scaled_data)
+
+# plot the variance explained by each PC
+plot(1:length(pca_result$sdev), pca_result$sdev^2 / sum(pca_result$sdev^2),
+     type = "b", xlab = "Principal Component", ylab = "Variance Explained")
+
+# pca_result$x is where the sample is located in PCA space. 
+pca_result_df <- as.data.frame(pca_result$x)
+
+pca_result_df <- cbind(pca_result_df, metaData) # include variables associated with samples
+
+VarianceExplained <- as.integer((pca_result$sdev^2 / sum(pca_result$sdev^2))*100) # variance explained by each PC 
+# PC1 vs PC2
+PCA <- ggplot(data=pca_result_df) + geom_point(aes(x=PC1, y=PC2, color=Phase, shape=batch))+geom_text_repel(aes(x=PC1, y=PC2, label=samplenames))+xlab(paste0("PC1: ", VarianceExplained[1], "% Variance Explained"))+ylab(paste0("PC2: ", VarianceExplained[2], "% Variance Explained"))+theme_classic()+ggtitle("PCA: Normalized counts")
+
+# plot PC vs phase
+pcavsphase <- list()
+for(i in 1:ncol(pca_result$x)){
+pcavsphase[[i]] <- ggplot(data=pca_result_df) + geom_point(aes_string(x="Phase", y=paste0("PC", i), color="batch", shape="Crosslink"))+theme_bw()+ylab(paste0("PC", i, ": ", VarianceExplained[i], "% Variance Explained"))
+}
+
+grid.arrange(grobs = pcavsphase[1:6], ncol = 3)
+
+# log2 + 1 transformed PCA
+log2normCounts <- log(counts(dds_Counts_peaks, normalized=T)+1,2)
+log2_scaled_data <- scale(t(log2normCounts))
+log2_pca_result <- prcomp(log2_scaled_data)
+
+# rlog transformed PCA
+rlog_scaled_data <- scale(t(assay(rlogdds_Counts_peaks)))
+rlog_pca_result <- prcomp(rlog_scaled_data)
+rlog_pca_result <- prcomp(t(assay(rlogdds_Counts_peaks)),scale. = TRUE)
+
+# plot the variance explained by each PC from rlog transformed counts
+plot(1:length(rlog_pca_result$sdev), rlog_pca_result$sdev^2 / sum(rlog_pca_result$sdev^2),
+     type = "b", xlab = "Principal Component", ylab = "Rlog Transformed Counts Variance Explained")
+
+
+# plot the variance explained by each PC from log2 transformed counts
+plot(1:length(log2_pca_result$sdev), log2_pca_result$sdev^2 / sum(log2_pca_result$sdev^2),
+     type = "b", xlab = "Principal Component", ylab = "log2 Transformed Counts Variance Explained")
+
+
+# log2_pca_result$x is where the sample is located in PCA space. 
+log2_pca_result_df <- as.data.frame(log2_pca_result$x)
+
+log2_pca_result_df <- cbind(log2_pca_result_df, metaData) # include variables associated with samples
+
+# PC1 vs PC2 for log2 transformed normalized counts
+VarianceExplained <- as.integer((log2_pca_result$sdev^2 / sum(log2_pca_result$sdev^2))*100) # variance explained by each PC 
+
+# PC1 and PC2 colored by Phase for log2 transformed normalized counts
+log2PCA <- ggplot(data=log2_pca_result_df) + geom_point(aes(x=PC1, y=PC2, color=Phase, shape=batch))+geom_text_repel(aes(x=PC1, y=PC2, label=samplenames))+xlab(paste0("PC1: ", VarianceExplained[1], "% Variance Explained"))+ylab(paste0("PC2: ", VarianceExplained[2], "% Variance Explained"))+theme_classic()+ggtitle("PCA: log2 transformed normalized counts")
+
+# plot PC vs phase for log2 transformed normalized counts
+log2pcavsphase <- list()
+for(i in 1:ncol(log2_pca_result$x)){
+log2pcavsphase[[i]] <- ggplot(data=log2_pca_result_df) + geom_point(aes_string(x="Phase", y=paste0("PC", i), color="batch", shape="Crosslink"))+theme_bw()+ylab(paste0("PC", i, ": ", VarianceExplained[i], "% Variance Explained"))
+}
+grid.arrange(grobs = log2pcavsphase[1:6], ncol = 3)
+
+
+# rlog_pca_result$x is where the sample is located in PCA space. 
+rlog_pca_result_df <- as.data.frame(rlog_pca_result$x)
+
+rlog_pca_result_df <- cbind(rlog_pca_result_df, metaData) # include variables associated with samples
+
+# PC1 vs PC2 for rlog transformed counts
+VarianceExplained <- as.integer((rlog_pca_result$sdev^2 / sum(rlog_pca_result$sdev^2))*100) # variance explained by each PC 
+
+# PC1 and PC2 colored by Phase for rlog transformed counts
+rlogPCA <- ggplot(data=rlog_pca_result_df) + geom_point(aes(x=PC1, y=PC2, color=Phase, shape=batch))+geom_text_repel(aes(x=PC1, y=PC2, label=samplenames))+xlab(paste0("PC1: ", VarianceExplained[1], "% Variance Explained"))+ylab(paste0("PC2: ", VarianceExplained[2], "% Variance Explained"))+theme_classic()+ggtitle("PCA: rlog transformed counts")
+
+# plot PC vs phase for log2 transformed normalized counts
+rlogpcavsphase <- list()
+for(i in 1:ncol(rlog_pca_result$x)){
+rlogpcavsphase[[i]] <- ggplot(data=rlog_pca_result_df) + geom_point(aes_string(x="Phase", y=paste0("PC", i), color="batch", shape="Crosslink"))+theme_bw()+ylab(paste0("PC", i, ": ", VarianceExplained[i], "% Variance Explained"))
+}
+
+grid.arrange(grobs = rlogpcavsphase[1:6], ncol = 3)
+```
+
+```{r}
+pdf(file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Figures/11272023/pcavsphase_11272023.pdf", width=10, height=3)
+grid.arrange(grobs = pcavsphase[1:4], ncol = 4, label="Raw Normalized Counts")
+grid.arrange(grobs = log2pcavsphase[1:4], ncol = 4, label="log2 transformed Normalized Counts")
+grid.arrange(grobs = rlogpcavsphase[1:4], ncol = 4, label="rlog transformed Counts")
+dev.off()
+
+pdf(file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Figures/11272023/PCA_prcomp_11272023.pdf", width=5, height=3)
+PCA
+log2PCA
+rlogPCA
+dev.off()
+```
+
+```{r}
+# specify colors for annotating samples 
+hm_cols <- list(Phase=c(I="#E41A1C", M="#377EB8"), Crosslink=c(Yes="#66C2A5", No="#FC8D62"), batch=c("4-26"="#8DD3C7", "7-13"="#FFFFB3", "9-27"="#BEBADA", "11-27"="#FFAC20"))
+
+sampleDists <- dist(t(assay(rlogdds_Counts_peaks))) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDists <- as.dist(1 - sampleDists)
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <-  colnames(rlogdds_Counts_peaks) # specify row names as sample names 
+colnames(sampleDistMatrix) <-  colnames(rlogdds_Counts_peaks) # specify col names as sample names 
+cor.matrix <-cor(sampleDistMatrix, method="spearman") # measure correlation 
+pheatmap(cor.matrix) # plot correlation heatmap
+
+# plot correlation of distance measures between samples. 
+pdf(file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Figures/11272023/Spearman.cor.matrix_11272023.pdf", width=7, height=4)
+pheatmap(cor.matrix, annotation_row = data.frame(metaData, row.names=metaData$samplenames)[ ,-1], annotation_colors = hm_cols)
+dev.off()
+```
+
