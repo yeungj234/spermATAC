@@ -1,0 +1,6 @@
+/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK001/atacHAK001_S6_001.trim.st.all.qft.rmdup.atac.bam
+/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK007/atacHAK007_S6_001.trim.st.all.qft.rmdup.atac.bam
+/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK023/atacHAK023_S6_001.trim.st.all.qft.rmdup.atac.bam
+/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK002/atacHAK002_S6_001.trim.st.all.qft.rmdup.atac.bam
+/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK024/atacHAK024_S6_001.trim.st.all.qft.rmdup.atac.bam
+/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK025/atacHAK025_S6_001.trim.st.all.qft.rmdup.atac.bam

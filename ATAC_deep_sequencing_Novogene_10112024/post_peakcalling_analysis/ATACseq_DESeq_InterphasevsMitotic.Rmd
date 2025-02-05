@@ -1,0 +1,982 @@
+---
+title: "Hide_ATAC_deep_analysis"
+author: "Joanna Yeung"
+date: '2024-10-11'
+output: html_document
+---
+```{r, warning=F}
+library(GenomicFeatures)
+library(GenomicRanges)
+library(rtracklayer)
+library(chromVAR)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(sva)
+library(preprocessCore)
+library(viridis)
+library(scales)
+library(ChIPseeker)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(org.Hs.eg.db)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(MotifDb)
+library(motifmatchr)
+library(Biostrings)
+library(clusterProfiler)
+library(pheatmap)
+library(readr)
+library(ggsci)
+library(ggrepel)
+library(chromPlot)
+library(rtracklayer)
+```
+
+```{r}
+hm_cols <- list(Condition=c("Interphase"="#B7E4F9FF", "Mitotic"="#24325FFF"),
+                Biorep=c("1"="#4269D0FF", "2"="#EFB118FF", "3"="#FF725CFF"))
+# make TxDb object from Xenopus Laevis gtf file
+TxDb.Xeno <- makeTxDbFromGFF("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+
+gene_annoXeno <- import("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+```
+
+```{r}
+### generate non-redundant master peak set
+setwd("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2")
+# read in sample names
+samplenames <- dir()[c(1,3,4,2,5,6)]
+
+# read in narrowPeak file for samples (these are the peaks we want for each sample)
+peakdir <- list()
+for(i in 1:length(samplenames)){
+peakdir[[i]] <- dir(path=paste0("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/", samplenames[i], "/peakCalls"), pattern=".narrowPeak")
+}
+peakdir <- unlist(peakdir[!is.null(peakdir)])
+# import summits.bed file into R: 
+  # resize the peak to be 500bp, fixed around the summit. 
+  # change name column to be chr:start-end coordinates
+  # add sample column denoting which sample peak came from. 
+masterpeaks <- list()
+for(i in 1:length(peakdir)){
+  masterpeaks[[i]] <- import(paste0("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/", samplenames[i], "/peakCalls/", peakdir[i]))
+  masterpeaks[[i]]$name <- paste0(seqnames(masterpeaks[[i]]), ":", start(masterpeaks[[i]]), "-", end(masterpeaks[[i]]))
+  masterpeaks[[i]]$sample <- samplenames[i]
+}
+names(masterpeaks) <- samplenames
+atacmasterpeaks <- masterpeaks[grepl("atac", names(masterpeaks))]
+# convert masterpeaks to GRangesList class so that it can be unlisted and reduced down to a non-redundant master peak set. 
+atacmasterpeaks <- GRangesList(atacmasterpeaks)
+reducedatacmasterpeaks <- unlist(atacmasterpeaks)
+reducedatacmasterpeaks <- GenomicRanges::reduce(reducedatacmasterpeaks)
+```
+
+```{r}
+# use chromVAR to count fragments across tiles
+bamdir <- list()
+for(i in 1:length(samplenames)){
+  bamdir[[i]] <- dir(paste0("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/", samplenames[i]), pattern="rmdup.atac.bam$", full.names=T)
+}
+bamdir <- unlist(bamdir)
+
+fragCounts <- list()
+for(i in 1:length(bamdir)){
+fragCounts[[i]] <- chromVAR::getCounts(bamdir[i], reducedatacmasterpeaks, paired=TRUE, by_rg=FALSE, format="bam")
+
+fragCounts[[i]] <- SummarizedExperiment::assays(fragCounts[[i]])[[1]] # convert fragment Counts into counts matrix  
+}
+
+#combine all samples into a single counts matrix 
+fragCounts <- do.call(cbind, fragCounts)
+# rename row names of count matrix to be "Chr:start-end_tile"
+row.names(fragCounts) <- paste0(unique(seqnames(reducedatacmasterpeaks)), ":", start(reducedatacmasterpeaks), "-", end(reducedatacmasterpeaks))  
+# remove suffix for shorter colnames
+colnames(fragCounts) <- gsub("_S6_001.trim.st.all.qft.rmdup.atac.bam", "", colnames(fragCounts))
+save(fragCounts, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/fragCounts.RData")
+```
+
+### make DESeq object
+```{r}
+# make metaData dataframe containing information on sample names, Condition and bioogical replicate. 
+metaData <- data.frame(sample=samplenames[grepl("atac", samplenames)], Condition=c("Interphase", "Interphase", "Interphase", "Mitotic",  "Mitotic",  "Mitotic"), Biorep=c("1", "2", "3", "1", "2", "3"))
+
+# make DESeq object from fragCounts matrix
+dds <- DESeq2::DESeqDataSetFromMatrix(countData=fragCounts, design=~Biorep+Condition, colData= metaData)
+dds <- estimateSizeFactors(dds)
+# keep only peaks with a sum of > 25%ile of rowSums read counts across rows. 
+keep <- rowSums(counts(dds, normalize=T)) >= summary(rowSums(counts(dds, normalized=T)))[2]
+dds <- dds[keep,]
+# perform DESeq
+dds <- DESeq(dds)
+# rlog normalize for QC metrics visualization
+rlogdds <- rlog(dds)
+```
+
+### plot pearson correlation coefficients on distance measures of rlog normalized counts across samples
+```{r}
+# get pearson correlation coefficients for pairwise comparisons between samples
+sampleDists <- dist(t(assay(rlogdds))) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDistMatrix <- as.matrix(sampleDists)
+row.names(metaData) <- metaData$sample
+# plot sample distance matrix
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/sampleDistMatrix.pdf", width=5, height=4)
+pheatmap(sampleDistMatrix,colorRampPalette(rev(c("white","white", "#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = metaData[ ,-1], annotation_col = metaData[ ,-1], annotation_colors = hm_cols) # plot correlation heatmap
+dev.off()
+```
+### plot PCA:
+```{r}
+# PCA based on all peaks
+scaled_data <- scale(t(counts(dds, normalized=T)))
+pca_result <- prcomp(scaled_data)
+
+# plot the variance explained by each PC
+plot(1:length(pca_result$sdev), pca_result$sdev^2 / sum(pca_result$sdev^2),
+     type = "b", xlab = "Principal Component", ylab = "Variance Explained")
+
+# pca_result$x is where the sample is located in PCA space. 
+pca_result_df <- as.data.frame(pca_result$x)
+
+pca_result_df <- cbind(pca_result_df, metaData) # include variables associated with samples
+
+VarianceExplained <- as.integer((pca_result$sdev^2 / sum(pca_result$sdev^2))*100) # variance explained by each PC 
+# PC1 vs PC2
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/PCA.pdf", width=5, height=4)
+ggplot(data=pca_result_df) + geom_point(aes(x=PC1, y=PC2, color=Condition, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", VarianceExplained[1], "% Variance Explained"))+ylab(paste0("PC2: ", VarianceExplained[2], "% Variance Explained"))+theme_classic()+ggtitle("PCA: Normalized counts, all Peaks")+scale_colour_manual(values=hm_cols$Condition)
+
+# by treatment- top 500 most variable peaks
+plotPCA(rlogdds, intgroup=c("Condition"))+theme_classic()+ggtitle("Principal Component:top 500 most variable peaks")+scale_colour_manual(values=hm_cols$Condition)
+dev.off()
+```
+# extract DESeq results
+```{r}
+res <- results(dds, contrast=c("Condition", "Interphase", "Mitotic"))
+# plot MA
+plotMA(dds, alpha=0.01, ylim=c(-6,6))
+```
+```{r}
+# filter for significant results based on padj <= 0.05 and an absolute log2FC >=1.
+sigLFCResults <- res[!is.na(res$padj) & res$padj <=0.01, ]
+sigLFCResults <- sigLFCResults[abs(sigLFCResults$log2FoldChange) >=1, ]
+
+# get rlog counts matrix for visualization in pheatmap
+Mat <- assay(rlogdds)
+row.names(Mat) <- rownames(rlogdds)
+# filter for sig changing peaks
+sigMat <- Mat[row.names(Mat) %in% row.names(sigLFCResults), ]
+
+# plot rlog counts under sig changing peaks
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/sigMat_padj0.01_log2FC1.pdf")
+pheatmap(sigMat, scale="row", annotation_col = metaData[ ,-1], show_rownames = F, cluster_cols = F, cluster_rows = T, annotation_colors = hm_cols, cutree_rows = 2)
+dev.off()
+hc_results <- pheatmap(sigMat, scale="row", annotation_col = metaData[ ,-1], show_rownames = F, cluster_cols = F, cluster_rows = T, annotation_colors = hm_cols, silent=T)
+
+# Get row dendrogram object
+row_dendrogram <- hc_results$tree_row
+
+# Extract the order of the rows as clustered by the dendrogram
+row_order <- row_dendrogram$order
+
+# Cut the tree into a desired number of clusters (e.g., k = 4)
+row_clusters <- cutree(as.hclust(row_dendrogram), k = 2)
+
+# Reorder the original data matrix
+ordered_sigMat <- sigMat[row_order, ]
+
+# keep only peaks with rowSums of counts greater than 25%ile for masterpeak set GRanges
+reducedatacmasterpeaksfilt <- reducedatacmasterpeaks[which(keep)]
+reducedatacmasterpeaksfilt$name <- row.names(Mat) 
+export(reducedatacmasterpeaksfilt, con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/reducedatacmasterpeaksfilt.gff")
+# filter for sig changing peaks GRanges
+sigatacpeaks <- reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt$name %in% row.names(sigMat)]
+
+# annotate rows of sigMat based on hierarchical cluster
+anno <- data.frame(row.names = row.names(sigMat),
+clusters=as.factor(row_clusters[match(row.names(sigMat), names(row_clusters))]))
+
+# replot sigMat with hierarchical cluster information
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/ordered_sigMat_padj0.01_log2FC1.pdf")
+pheatmap(ordered_sigMat, scale="row", annotation_col = metaData[ ,-1], show_rownames = F, cluster_cols = F, cluster_rows = F, annotation_colors = hm_cols, cutree_rows = 2, annotation_row = anno)
+dev.off()
+
+# categorize GRanges of sig changing peaks by whether peaks are higher in mitosis or higher in interphase. 3rd object is all Peaks as reference. 
+sigatacpeaksclust <- list(MitoticUp=sigatacpeaks[sigatacpeaks$name %in% names(row_clusters[row_clusters ==1])], InterphaseUp=sigatacpeaks[sigatacpeaks$name %in% names(row_clusters[row_clusters ==2])], allPeaks=reducedatacmasterpeaksfilt)
+
+sigResultsIvsM <- list()
+sigResultsIvsM$MitoticUp <-sigLFCResults[row.names(sigLFCResults) %in% sigatacpeaksclust$MitoticUp$name, ]
+sigResultsIvsM$InterphaseUp <-sigLFCResults[row.names(sigLFCResults) %in% sigatacpeaksclust$InterphaseUp$name, ]
+# extract normalized counts
+normCounts <- counts(dds, normalized=T)
+# assign weightCol column which indicates the average normalized counts under peaks across bioreps within: 
+# Mitotic samples: 
+sigatacpeaksclust$MitoticUp$weightCol <- apply(normCounts[match(sigatacpeaksclust$MitoticUp$name, row.names(normCounts)), 4:6], 1, mean) # avg reads in mitotic up peaks for mitotic samples
+sigatacpeaksclust$MitoticUp$weightI <- apply(normCounts[match(sigatacpeaksclust$MitoticUp$name, row.names(normCounts)), 1:3], 1, mean) # avg reads in peaks in mitotic up peaks for interphase samples
+# interphase samples: 
+sigatacpeaksclust$InterphaseUp$weightCol <- apply(normCounts[match(sigatacpeaksclust$InterphaseUp$name, row.names(normCounts)), 1:3], 1, mean) # avg reads in interphase up peaks for interphase samples
+sigatacpeaksclust$InterphaseUp$weightM <- apply(normCounts[match(sigatacpeaksclust$InterphaseUp$name, row.names(normCounts)), 4:6], 1, mean) # avg reads in interphase up peaks for mitotic samples
+sigatacpeaksclust$allPeaks$Mweight <- apply(normCounts[match(sigatacpeaksclust$allPeaks$name, row.names(normCounts)), 4:6], 1, mean) # avg reads in all peaks for mitotic samples
+sigatacpeaksclust$allPeaks$Iweight <- apply(normCounts[match(sigatacpeaksclust$allPeaks$name, row.names(normCounts)), 1:3], 1, mean)  # avg reads in all peaks for interphase samples
+
+# plot signal under peaks across genome
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/IvsM_sigPeaks_covplot.pdf", width=30, height=10)
+plot_grid(
+ChIPseeker::covplot(sigatacpeaksclust$MitoticUp, weightCol="weightCol", title="Mitotic Up Peaks")+ylim(0,6000),
+ChIPseeker::covplot(sigatacpeaksclust$InterphaseUp,  weightCol="weightCol", title="Interphase Up Peaks")+ylim(0,6000), ncol=2)
+
+plot_grid(
+ChIPseeker::covplot(sigatacpeaksclust$MitoticUp, weightCol="weightCol", title="Mitotic Up Peaks: reads in Mitotic Samples")+ylim(0,6000),
+ChIPseeker::covplot(sigatacpeaksclust$MitoticUp,  weightCol="weightI", title="Mitotic Up Peaks: reads in Interphase Samples")+ylim(0,6000), ncol=2)
+
+plot_grid(
+ChIPseeker::covplot(sigatacpeaksclust$InterphaseUp, weightCol="weightCol", title="Interphase Up Peaks: reads in Interphase Samples")+ylim(0,400),
+ChIPseeker::covplot(sigatacpeaksclust$InterphaseUp,  weightCol="weightM", title="Interphase Up Peaks: reads in Mitotic Samples")+ylim(0,400), ncol=2)
+dev.off ()
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/IvsM_sigPeaks_Chr1L_covplot.pdf", width=30, height=10)
+plot_grid(
+ChIPseeker::covplot(sigatacpeaksclust$MitoticUp, weightCol="weightCol", title="Mitotic Up Peaks: reads in Mitotic Samples", chrs = "Chr1L")+ylim(0,1200),
+ChIPseeker::covplot(sigatacpeaksclust$MitoticUp,  weightCol="weightI", title="Mitotic Up Peaks: reads in Interphase Samples", chrs = "Chr1L")+ylim(0,1200), ncol=2)
+plot_grid(
+ChIPseeker::covplot(sigatacpeaksclust$InterphaseUp, weightCol="weightCol", title="Interphase Up Peaks: reads in Interphase Samples", chrs = "Chr1L")+ylim(0,200),
+ChIPseeker::covplot(sigatacpeaksclust$InterphaseUp,  weightCol="weightM", title="Interphase Up Peaks: reads in Mitotic Samples", chrs = "Chr1L")+ylim(0,200), ncol=2)
+dev.off()
+
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/Chr1L_allPeaks_covplot.pdf", width=30, height=7)
+plot_grid(ChIPseeker::covplot(sigatacpeaksclust$allPeaks,  weightCol="Mweight", title="Mitotic reads in Peaks", chrs = "Chr1L"), ChIPseeker::covplot(sigatacpeaksclust$allPeaks,  weightCol="Iweight", title="Interphase reads in Peaks", chrs = "Chr1L"), ncol=2)
+dev.off()
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/allChr_allPeaks_covplot.pdf", width=30, height=20)
+plot_grid(ChIPseeker::covplot(sigatacpeaksclust$allPeaks,  weightCol="Mweight", title="Mitotic reads in Peaks"), ChIPseeker::covplot(sigatacpeaksclust$InterphaseUp,  weightCol="Iweight", title="Interphase reads in Peaks"), ncol=2)
+dev.off()
+```
+# peak annotation of peaks higher in interphase vs higher in mitosis 
+```{r}
+annosigatacpeaksclust <- lapply(sigatacpeaksclust, annotatePeak, TxDb=TxDb.Xeno)
+# plot peak anno
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/plotAnnoPie.pdf")
+plotAnnoPie(annosigatacpeaksclust$MitoticUp, main="More accessible in Mitosis")
+plotAnnoPie(annosigatacpeaksclust$InterphaseUp, main="More accessible in Interphase")
+plotAnnoPie(annosigatacpeaksclust$allPeaks, main="All accessible peaks")
+dev.off()
+annosigatacpeaksclust <- lapply(annosigatacpeaksclust, as.GRanges)
+
+for(i in 1:length(sigatacpeaksclust)){
+annosigatacpeaksclust[[i]]$gene_biotype <- gene_annoXeno[match(annosigatacpeaksclust[[i]]$geneId, gene_annoXeno$gene_id), ]$gene_biotype
+annosigatacpeaksclust[[i]]$gbkey <- gene_annoXeno[match(annosigatacpeaksclust[[i]]$geneId, gene_annoXeno$gene_id), ]$gbkey
+
+annosigatacpeaksclust[[i]]$annotation <- gsub("^\\s*(\\S+)\\s(?!UTR).*", "\\1", annosigatacpeaksclust[[i]]$annotation, perl = TRUE)
+
+}
+annosigatacpeaksclustdf <- lapply(annosigatacpeaksclust, as.data.frame)
+for(i in 1:length(annosigatacpeaksclustdf)){
+  # make annotation simpler for plotting purposes
+annosigatacpeaksclustdf[[i]][grepl("Intron|Exon|Promoter|Downstream", annosigatacpeaksclustdf[[i]]$annotation), ]$annotation <- gsub(" .*", "", annosigatacpeaksclustdf[[i]][grepl("Intron|Exon|Promoter|Downstream", annosigatacpeaksclustdf[[i]]$annotation), ]$annotation )
+}
+
+# plot proportion of types of genes linked to peaks
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/genetype_link_nearest_peak.pdf", height=7, width=11)
+plot_grid(ggplot(annosigatacpeaksclustdf$MitoticUp, aes(x=gene_biotype, fill=annotation))+geom_bar()+scale_y_log10()+theme_classic()+theme(axis.text.x = element_text(angle=90))+ggtitle("Mitotic Up")+scale_fill_cosmic(), 
+
+ggplot(annosigatacpeaksclustdf$InterphaseUp, aes(x=gene_biotype, fill=annotation))+geom_bar()+scale_y_log10()+theme_classic()+theme(axis.text.x = element_text(angle=90))+ggtitle("Interphase Up")+scale_fill_cosmic(),
+ggplot(annosigatacpeaksclustdf$allPeaks, aes(x=gene_biotype, fill=annotation))+geom_bar()+scale_y_log10()+theme_classic()+theme(axis.text.x = element_text(angle=90))+ggtitle("allPeaks")+scale_fill_cosmic(), ncol=3
+)
+dev.off()
+```
+
+```{r}
+mergedNormMat <- counts(collapseReplicates(dds, groupby=dds$Condition), normalize=T)
+Mat_df <- as.data.frame(mergedNormMat)
+Mat_df$peaks <- row.names(Mat_df)
+Mat_df$padj <- res$padj
+Mat_df$significant <- ifelse(row.names(Mat) %in% row.names(sigLFCResults), "Sig", "Not Sig")
+
+mergedrlogMat <- cbind(apply(Mat[, 1:3], 1, sum), apply(Mat[, 4:6], 1, sum))
+colnames(mergedrlogMat) <- c("Interphase","Mitotic")
+rlogMat_df <- as.data.frame(mergedrlogMat)
+rlogMat_df$peaks <- row.names(rlogMat_df)
+rlogMat_df$padj <- res$padj
+rlogMat_df$significant <- ifelse(row.names(rlogMat_df) %in% row.names(sigLFCResults), "Sig", "Not Sig")
+
+library(dplyr)
+
+# Filter for the top 100 most significant peaks based on `padj`
+top20 <- Mat_df %>% 
+  arrange(padj) %>% 
+  filter(significant == "Sig") %>% 
+  slice(1:20)
+
+# Plot with ggplot
+#normalized counts
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/countsUnderpeaks.pdf", height=7, width=7)
+ggplot(Mat_df, aes(x = Interphase, y = Mitotic)) +
+  # geom_point for non-significant peaks (grey color)
+  geom_jitter(data = filter(Mat_df, significant == "Not Sig"), aes(x = Interphase, y = Mitotic), color = "grey", alpha = 0.5) +
+  # geom_point for significant peaks with a color gradient based on `padj`
+  geom_jitter(data = filter(Mat_df, significant == "Sig"), aes(color = padj), alpha = 0.8) +
+  scale_color_material(palette="red", name="padj")+
+  # Label the top 20 most significant peaks
+  geom_text_repel(data = top20, aes(label = peaks), color = "black", size = 1, fontface = "bold") +
+  # Customize plot appearance
+  theme_minimal() +
+  labs(title = "ATAC-seq Peak Counts per Sample",
+       x = "Interphase",
+       y = "Mitosis",
+       color = "Adjusted p-value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+ylim(0,30000)+xlim(0,30000)
+dev.off()
+
+top20 <- rlogMat_df %>% 
+  arrange(padj) %>% 
+  filter(significant == "Sig") %>% 
+  slice(1:20)
+
+# rlogcounts
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/rlogcountsUnderpeaks.pdf", height=7, width=7)
+ggplot(rlogMat_df, aes(x = Interphase, y = Mitotic)) +
+  # geom_point for non-significant peaks (grey color)
+  geom_jitter(data = filter(rlogMat_df, significant == "Not Sig"), aes(x = Interphase, y = Mitotic), color = "grey", alpha = 0.5) +
+  # geom_point for significant peaks with a color gradient based on `padj`
+  geom_jitter(data = filter(rlogMat_df, significant == "Sig"), aes(color = padj), alpha = 0.8) +
+  scale_color_material(palette="red", name="padj")+
+  # Label the top 20 most significant peaks
+  geom_text_repel(data = top20, aes(label = peaks), color = "black", size = 1, fontface = "bold") +
+  # Customize plot appearance
+  theme_minimal() +
+  labs(title = "ATAC-seq Peak Counts per Sample",
+       x = "Interphase",
+       y = "Mitosis",
+       color = "Adjusted p-value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+ylim(0,40)+xlim(0,40)
+dev.off()
+# plot counts for top 20 peaks only
+
+#volcano plot
+res_df <- as.data.frame(res)
+res_df$peaks <- row.names(res_df)
+res_df$significant <- ifelse(row.names(res_df) %in% row.names(sigLFCResults), "Sig", "Not Sig")
+top20res <- res_df[row.names(res_df) %in% row.names(top20), ]
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/volcanoplot.pdf", height=7, width=7)
+ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj))) +
+  # geom_point for non-significant peaks (grey color)
+  geom_jitter(data = filter(res_df, significant == "Not Sig"), aes(x = log2FoldChange, y = -log10(padj)), color = "grey", alpha = 0.5) +
+  # geom_point for significant peaks with a color gradient based on `padj`
+  geom_jitter(data = filter(res_df, significant == "Sig"), aes(color = padj), alpha = 0.8) +
+  scale_color_material(palette="red", name="padj")+
+  # Label the top 20 most significant peaks
+  geom_text_repel(data = top20res, aes(label = peaks), color = "black", size = 1, fontface = "bold") +
+  # Customize plot appearance
+  theme_minimal() +
+  ggtitle("Interphase vs Mitotic")+
+  scale_x_continuous(n.breaks=8)
+  labs(x = "log2FoldChange",
+       y = "padj") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+dev.off()
+```
+
+# determine peak width across samples to see how broad regions of accessibility are between mitosis and interphase
+```{r}
+atacmasterpeaksfilt <- list()
+for(i in 1:length(atacmasterpeaks)){
+  atacmasterpeaksfilt[[i]] <- atacmasterpeaks[[i]][atacmasterpeaks[[i]] %over% reducedatacmasterpeaksfilt] # for each sample's peak set, keep only peaks that overlap with master peak set. 
+}
+names(atacmasterpeaksfilt) <- names(atacmasterpeaks)
+
+peakWidth <- list()
+for(i in 1:length(atacmasterpeaksfilt)){
+  peakWidth[[i]] <- data.frame(sample=names(atacmasterpeaksfilt)[i], width=width(atacmasterpeaksfilt[[i]]))
+  peakWidth[[i]] <- merge(peakWidth[[i]], metaData, by="sample")
+}
+peakWidth <- do.call(rbind, peakWidth)
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/peakWidth.pdf")
+ggplot(peakWidth, aes(x=sample, y=width, fill=Condition))+geom_violin()+scale_fill_manual(values=hm_cols$Condition)+theme_minimal()+ggtitle("ATAC-seq Peak Width (bp)")
+ggplot(peakWidth, aes(x=sample, y=log10(width), fill=Condition))+geom_violin()+geom_boxplot(width=0.1, fill="white")+scale_fill_manual(values=hm_cols$Condition)+theme_minimal()+ggtitle("ATAC-seq Peak Width (log10(bp))")
+dev.off()
+```
+# plot normalized counts of top 1000 sig changing peaks from each hierarchical cluster
+```{r}
+# extract sig peaks based on hierarchical cluster
+MitoticUp_res <- res[row.names(res) %in% sigatacpeaksclust$MitoticUp$name, ]
+MitoticUp_res <- MitoticUp_res[order(MitoticUp_res$log2FoldChange), ]
+MitoticUp_dds <- dds[row.names(dds) %in% sigatacpeaksclust$MitoticUp$name, ]
+MitoticUp_dds <- MitoticUp_dds[match(row.names(MitoticUp_res), rownames(MitoticUp_dds))]
+
+InterphaseUp_res <- res[row.names(res) %in% sigatacpeaksclust$InterphaseUp$name, ]
+InterphaseUp_res <- InterphaseUp_res[order(InterphaseUp_res$log2FoldChange, decreasing=T), ]
+InterphaseUp_dds <- dds[row.names(dds) %in% sigatacpeaksclust$InterphaseUp$name, ]
+InterphaseUp_dds <- InterphaseUp_dds[match(row.names(InterphaseUp_res), rownames(InterphaseUp_dds))]
+
+# plot counts for top 1000 significant peaks for each Condition (based on ordering of log2FC values from highest to lowest)
+d <- list()
+d_ggplots <- list()
+for(i in 1:1000){
+d[[i]] <- plotCounts(MitoticUp_dds, gene=rownames(MitoticUp_dds)[i], intgroup="Condition", 
+                returnData=TRUE) 
+# add metaData info
+d[[i]] <- cbind(d[[i]], metaData[match(row.names(d[[i]]), metaData$sample), c("sample", "Biorep")], annosigatacpeaksclust$MitoticUp[annosigatacpeaksclust$MitoticUp$name %in% rownames(MitoticUp_dds)[i], c("annotation", "gene_biotype", "distanceToTSS", "geneId")])
+# make ggplots
+d_ggplots[[i]] <- ggplot(d[[i]], aes(x=Condition, y=count, color=Biorep, label=sample)) + 
+  geom_point(position=position_jitter(w=0.1,h=0), size=2)+ggtitle(paste0(rownames(MitoticUp_dds)[i], "\n", "peak width=", d[[i]]$width, "bp, annotation=", d[[i]]$annotation, " ,\ntype of nearest gene linked=", d[[i]]$gene_biotype, ",\n", "distance to TSS=", d[[i]]$distanceToTSS, "bp, nearest gene=", d[[i]]$geneId))+scale_color_manual(values=hm_cols$Biorep)+geom_text_repel()+theme_minimal()+theme(title=element_text(size=10), axis.text = element_text(size=14), axis.title = element_text(size=14))+ylab("Normalized Counts")+xlab("")
+}
+# combine plots into 1 plot
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/MitoticUp_dds_top1000normCounts.pdf", width=5, height=5)
+d_ggplots
+dev.off()
+
+d <- list()
+d_ggplots <- list()
+for(i in 1:1000){
+d[[i]] <- plotCounts(InterphaseUp_dds, gene=rownames(InterphaseUp_dds)[i], intgroup="Condition", 
+                returnData=TRUE) 
+# add metaData info
+d[[i]] <- cbind(d[[i]], metaData[match(row.names(d[[i]]), metaData$sample), c("sample", "Biorep")], annosigatacpeaksclust$InterphaseUp[annosigatacpeaksclust$InterphaseUp$name %in% rownames(InterphaseUp_dds)[i], c("annotation", "gene_biotype", "distanceToTSS", "geneId")])
+# make ggplots
+d_ggplots[[i]] <- ggplot(d[[i]], aes(x=Condition, y=count, color=Biorep, label=sample)) + 
+  geom_point(position=position_jitter(w=0.1,h=0), size=2)+ggtitle(paste0(rownames(InterphaseUp_dds)[i], "\n", "peak width=", d[[i]]$width, "bp, annotation=", d[[i]]$annotation, " ,\ntype of nearest gene linked=", d[[i]]$gene_biotype, ",\n", "distance to TSS=", d[[i]]$distanceToTSS, "bp, nearest gene=", d[[i]]$geneId))+scale_color_manual(values=hm_cols$Biorep)+geom_text_repel()+theme_minimal()+theme(title=element_text(size=10), axis.text = element_text(size=14), axis.title = element_text(size=14))+ylab("Normalized Counts")+xlab("")
+}
+# combine plots into 1 plot
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/InterphaseUp_dds_top1000normCounts.pdf", width=5, height=5)
+d_ggplots
+dev.off()
+```
+
+# Fragment Length distribution
+```{r}
+setwd("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2")
+# make vector of sample names (folder for each sample that gets produced from Nicole's ATAC-seq pipeline)
+samplesList <- list()
+for(i in 1:length(samplenames)){
+  samplesList[[i]] <- read.table(paste0(samplenames[i], "/", samplenames[i],"_hist_data_withoutdups.log"), skip=10, header=T) # read in hist_data_withoutdups.log file for each sample
+}
+names(samplesList) <- samplenames
+
+# want each sample to have the same value of insert sizes from 1-1000bp (we don't want missing insert sizes because then it is hard to plot on ggplot if different samples have different axes. We will fill in the insert sizes with no reads as NA. 
+for(i in 1:length(samplesList)){
+  hist <- data.frame(insert_size=1:1000) 
+  samplesList[[i]] <- merge(hist, samplesList[[i]], by="insert_size", all=T)
+  samplesList[[i]][is.na(samplesList[[i]]$All_Reads.fr_count), ]$All_Reads.fr_count <- 0  # convert NA values to 0
+} 
+
+final_hist <- do.call(rbind, samplesList) # rbind each samples' histogram dataframe into 1 final dataframe. 
+final_hist$sample <- unlist(lapply(names(samplesList), rep, 1000)) # specify samples column so that we can color ggplot by sample.
+final_hist$sample <- factor(final_hist$sample, levels=names(samplesList))
+final_hist <- merge(final_hist, metaData, by="sample")
+```
+```{r}
+logFLD <- ggplot(final_hist, aes(x=insert_size, y=log(All_Reads.fr_count), colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+  ylab("log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+FLD <- ggplot(final_hist, aes(x=insert_size, y=All_Reads.fr_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF","#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=40)+
+  ylab("Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+percent_hist <- samplesList
+
+percent_count <-lapply(percent_hist, function(percent_hist){ percent_hist$All_Reads.fr_count/sum(na.omit(percent_hist$All_Reads.fr_count))})
+
+for(i in 1:length(percent_hist)){
+  percent_hist[[i]]$percent_count <- percent_count[[i]]
+}
+percent_hist <- do.call(rbind, percent_hist) # rbind each samples' histogram dataframe into 1 percent dataframe. 
+percent_hist$sample <- unlist(lapply(names(samplesList), rep, 1000)) # specify samples column so that we can color ggplot by sample.
+percent_hist$sample <- factor(percent_hist$sample, levels=names(samplesList))
+percent_hist <- merge(percent_hist, metaData, by="sample")
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/percent_hist_FLD.pdf")
+ggplot(percent_hist, aes(x=insert_size, y=log(percent_count), colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+    scale_x_continuous(n.breaks=10)+
+  ylab("Normalized log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+ggplot(percent_hist, aes(x=insert_size, y=percent_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=10)+
+  ylab("Normalized Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+dev.off()
+```
+
+
+# FRIP score
+```{r}
+bamCounts <- c("atacHAK001"=76767752/2, "atacHAK007"=70145700/2, "atacHAK023"=63149148/2, "atacHAK002"=77233600/2, "atacHAK024"=43414500/2, "atacHAK025"=92831826/2)
+FRIP <- data.frame(row.names=names(bamCounts), sample=names(bamCounts), totalReads=bamCounts, countsinPeaks=colSums(as.matrix(fragCounts)))
+FRIP$FRIP <- FRIP$countsinPeaks/FRIP$totalReads
+FRIP <- merge(FRIP, metaData, by="sample")
+
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/FRIP.pdf")
+ggplot(FRIP, aes(x=Condition, y=FRIP, color=Condition, label=sample))+geom_text(vjust=-0.5)+geom_point()+scale_color_manual(values=hm_cols$Condition)+ylim(0.3,0.5)+theme_minimal()+ggtitle("ATAC-seq Peak Width (bp)")
+dev.off()
+
+
+```
+# counts across tiled genome
+```{r}
+xenLae2 <- read.table("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1_genomic.fna.fai", sep="\t")
+
+# make GRanges object for whole genome
+xenLae2_GR <- GRanges(seqnames=xenLae2$V1, ranges=IRanges(start=1, end=xenLae2$V2))
+# use tile function to create bins of 500bp for the Xenopus genome
+xenLae2_tiles <- tile(xenLae2_GR, width=500)
+xenLae2_tiles <- unlist(xenLae2_tiles)
+xenLae2_tiles <- xenLae2_tiles[grepl("Chr", seqnames(xenLae2_tiles))] # remove scaffold and mitochondrial chromosomes from being counted as tiles since we do not count them. 
+
+tileCounts <- list()
+for(i in 1:length(bamdir)){
+tileCounts[[i]] <- chromVAR::getCounts(bamdir[i], xenLae2_tiles, paired=TRUE, by_rg=FALSE, format="bam")
+
+tileCounts[[i]] <- SummarizedExperiment::assays(tileCounts[[i]])[[1]] # convert tilement Counts into counts matrix  
+}
+
+#combine all samples into a single counts matrix 
+tileCounts <- do.call(cbind, tileCounts)
+# rename row names of count matrix to be "Chr:start-end_tile"
+row.names(tileCounts) <- paste0(seqnames(xenLae2_tiles), ":", start(xenLae2_tiles), "-", end(xenLae2_tiles))  
+# remove suffix for shorter colnames
+colnames(tileCounts) <- gsub("_S6_001.trim.st.all.qft.rmdup.atac.bam", "", colnames(tileCounts))
+save(tileCounts, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/tileCounts.RData")
+tileCounts <- as.matrix(tileCounts)
+
+# get normalized counts in tiles
+dds_tiles <- DESeq2::DESeqDataSetFromMatrix(countData=tileCounts, design=~Biorep+Condition, colData= metaData)
+dds_tiles <- estimateSizeFactors(dds_tiles)
+tilenormCounts <- counts(dds_tiles, normalized=T)
+
+I_keep <- mean(apply(tilenormCounts[ ,1:3], 2, quantile, 0.25))
+I_open_normCounts <- tilenormCounts[apply(tilenormCounts[ ,1:3], 1, function(row) sum(row >= I_keep) >= 3), ]
+
+M_keep <- mean(apply(tilenormCounts[ ,4:6], 2, quantile, 0.25))
+M_open_normCounts <- tilenormCounts[apply(tilenormCounts[ ,4:6], 1, function(row) sum(row >= M_keep) >= 3), ]
+
+# write function to create venn diagrams that are proportional to size of each category. 
+create_proportional_venn <- function(sets, set_labels, colors = c("#E0ADCD", "#B3C543", "#A0ADCD")) {
+  library(eulerr)
+  # Check if sets and labels are provided correctly
+  if (length(sets) != length(set_labels)) {
+    stop("The number of sets and set_labels must be the same.")
+  }
+  
+  # Prepare the data for eulerr
+  venn_data <- setNames(sets, set_labels)
+  
+  # Use eulerr to calculate the Venn diagram
+  venn_fit <- euler(venn_data)
+  
+  # Plot the Venn diagram
+  plot(venn_fit, 
+       fills = colors, 
+       labels = list(cex = 1, fontfamily = "Helvetica"),
+       quantities = list(cex = 1),
+       edges = list(lwd = 2))
+}
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/overlapping_accessible_500bp_tiles_VennDiagram.pdf", width=10, height=4)
+# Plot the Venn diagram of sig Up peaks that Palbo & Doxo share
+
+create_proportional_venn(sets=list(row.names(I_open_normCounts), row.names(M_open_normCounts )), 
+                         set_labels = c(paste0("Interphase: ",  nrow(I_open_normCounts)/nrow(tileCounts)*100, "% of 500bp bins are accessible"), paste0("Mitosis: ", nrow(M_open_normCounts)/nrow(tileCounts)*100, "% of 500bp bins are accessible")), 
+                         colors = c("#B7E4F9FF", "#24325FFF")
+)
+dev.off()
+
+# % of genome that is completely inaccessible (0 read counts in that region)
+nrow(tilenormCounts[rowSums(tilenormCounts[ ,1:3])==0, ])/nrow(tilenormCounts)
+nrow(tilenormCounts[rowSums(tilenormCounts[ ,4:6])==0, ])/nrow(tilenormCounts)
+
+# % of genome that is accessible & inaccessible via genome length. should give the same answer as calculating with tiles
+Xenla_Length <-  sum(width(xenLae2_GR[grepl("Chr", seqnames(xenLae2_GR))])) # total length of xenopus genome (without mitochondrial and scaffold chromosomes)
+nrow(I_open_normCounts)*500/Xenla_Length 
+nrow(M_open_normCounts)*500/Xenla_Length 
+```
+
+# generate bigwigs (all reps merged)
+```{r}
+# get size factor of merged replicates within condition to get size factor to make merged bigwigs. 
+dds_collapsed <- collapseReplicates(dds_tiles, groupby=dds_tiles$Condition)
+```
+```{bash}
+cd /lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atac_mergedbigwigs/
+sbatch -p risc,hpc bamCoverage_scaleFactor_noOffset.slurm
+```
+
+# get overall chromatin accessibility in a somatic cell since Hide wants to make the claim that chromatin accessibility is higher in sperm egg extract compared to somatic cells. 
+```{r}
+# make GRanges object of hg38 genome 
+gr_hg38 <- GRanges(seqnames = seqnames( BSgenome.Hsapiens.UCSC.hg38),
+                   ranges = IRanges(start = 1, end = seqlengths( BSgenome.Hsapiens.UCSC.hg38)))
+
+# use tile function to create bins of 500bp for the hg38 genome 
+hg38_tiles <- tile(gr_hg38, width=500)
+hg38_tiles <- hg38_tiles[seqnames(hg38_tiles) %in% paste0("chr", c(1:22, "X"))] # keep only chr1:22 and chrX. 
+
+# read in IMR90 ATAC-seq counts under tiles (downloaded from ENCODE)
+IMR90_bamdir <- dir("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ENCODE_IMR90_ATACseq/bams", full.names = T)
+
+IMR90tileCounts <- list()
+for(i in 1:length(IMR90_bamdir)){
+IMR90tileCounts[[i]] <- chromVAR::getCounts(IMR90_bamdir[i], hg38_tiles, paired=TRUE, by_rg=FALSE, format="bam")
+
+IMR90tileCounts[[i]] <- SummarizedExperiment::assays(IMR90tileCounts[[i]])[[1]] # convert tilement Counts into counts matrix  
+}
+
+#combine all samples into a single counts matrix 
+IMR90tileCounts <- do.call(cbind, IMR90tileCounts)
+# rename row names of count matrix to be "Chr:start-end_tile"
+row.names(IMR90tileCounts) <- paste0(seqnames(hg38_tiles), ":", start(hg38_tiles), "-", end(hg38_tiles))  
+
+save(IMR90tileCounts, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/IMR90tileCounts.RData")
+IMR90tileCounts <- as.matrix(IMR90tileCounts)
+
+# get normalized counts in tiles
+IMR90_colData <- data.frame(sample=colnames(IMR90tileCounts), Biorep=c("1", "2"))
+dds_IMR90tiles <- DESeq2::DESeqDataSetFromMatrix(countData=IMR90tileCounts, design=~Biorep, colData= IMR90_colData)
+dds_IMR90tiles <- estimateSizeFactors(dds_IMR90tiles)
+IMR90tilenormCounts <- counts(dds_IMR90tiles, normalized=T)
+# since if we include bins that are all 0 counts, the 25th quantile is still 0. so we will find the 25th quantile after removing all rowSums=0
+IMR90_keep <- mean(apply(IMR90tilenormCounts[!rowSums(IMR90tilenormCounts)==0, ], 2, quantile, 0.25))
+# number of tiles that are above the minimum accessibility threshold. 
+IMR90_open_normCounts <- IMR90tilenormCounts[apply(IMR90tilenormCounts, 1, function(row) sum(row >= IMR90_keep ) >= 2), ]
+
+nrow(IMR90_open_normCounts)/nrow(IMR90tileCounts)
+
+# try to look at percent of accessible regions with threshold set to median counts per sample instead 
+IMR90_keep <- mean(apply(IMR90tilenormCounts[!rowSums(IMR90tilenormCounts)==0, ], 2, quantile, 0.50))
+# number of tiles that are above the minimum accessibility threshold. 
+IMR90_open_normCounts <- IMR90tilenormCounts[apply(IMR90tilenormCounts, 1, function(row) sum(row >= IMR90_keep ) >= 2), ]
+nrow(IMR90_open_normCounts)/nrow(IMR90tileCounts)
+
+nrow(IMR90_open_normCounts)/nrow(IMR90tileCounts)
+
+# % of genome that is completely inaccessible (0 read counts in that region)
+nrow(IMR90tilenormCounts[rowSums(IMR90tilenormCounts)==0, ])/nrow(IMR90tilenormCounts)
+```
+
+# make input files for bamCoverage script to convert bams to normalized by scale factor bigwigs
+```{r}
+writeLines(bamdir, con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/inputfiles.txt")
+writeLines(samplenames, con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/samplenames.txt")
+writeLines(as.character(1/dds_tiles$sizeFactor), con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/scaleFactor.txt")
+```
+
+```{r}
+# read in CENPA ChIP-seq peaks downloaded from xenbase.org
+CENPA <- lapply(dir("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/Xenbase/ChIPseq/peaks", full.names=T), read.table)
+CENPA_peaks <- list()
+for(i in 1:length(CENPA)){
+  CENPA_peaks[[i]] <- GRanges(seqnames=CENPA[[i]]$V1, ranges = IRanges(start=CENPA[[i]]$V2, end=CENPA[[i]]$V3), ID=CENPA[[i]]$V4)
+}
+# merge replicates into a single peak set and remove scaffold chromosomes
+CENPA_peaks <- reduce(unlist(GRangesList(CENPA_peaks)))
+CENPA_peaks <- CENPA_peaks[grepl("Chr", seqnames(CENPA_peaks))]
+
+# split each peak into its own GRanges object for overlapping with bigwig GRanges. this way I can calculate a score indicating overall signal under each peak. 
+CENPA_peaks_list <- split(CENPA_peaks, seq_along(CENPA_peaks))
+for(i in 1:length(CENPA_peaks)){
+  CENPA_peaks_list[[i]] <- CENPA_peaks[i]
+}
+
+
+# read in signal from CENPA ChIP-seq bigwigs
+CENPA_bw <- lapply(dir("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/Xenbase/ChIPseq/bigwigs", full.names=T, pattern="CENPA"), import.bw)
+
+gr <- CENPA_bw[[1]]
+gr_list <- CENPA_peaks_list
+# Function to find overlaps for each GRanges in GRangesList
+overlap_results <- lapply(gr_list, function(gr_list) {
+  hits <- findOverlaps(gr_list, gr)
+  if (length(hits) > 0) {
+    gr[subjectHits(hits)]  # Extract overlapping rows from BigWig GRanges
+  } else {
+    GRanges()  # Return an empty GRanges if no overlaps are found
+  }
+})
+save(overlap_results, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/CENPA_peaks_rep1_signal_bw.RData")
+summed_score <- lapply(overlap_results, function(overlap_results) {sum(overlap_results$score)})
+save(summed_score, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/CENPA_peaks_rep1_summed_score.RData")
+
+CENPA_peaks_rep1 <- CENPA_peaks
+CENPA_peaks_rep1$score <- unlist(summed_score)
+save(CENPA_peaks_rep1, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/CENPA_peaks_rep1_GR_score.RData")
+
+# did the same for rep2 and rep3. submitted as a sbatch slurm script. 
+load("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/CENPA_peaks_rep3_GR_score.RData")
+load("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/CENPA_peaks_rep2_GR_score.RData")
+load("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/CENPA_peaks_rep1_GR_score.RData")
+
+CENPA_mean_score <- lapply(seq_along(CENPA_peaks), function(i) {
+  mean(c(CENPA_peaks_rep1$score[i], CENPA_peaks_rep2$score[i], CENPA_peaks_rep3$score[i]))
+})
+
+CENPA_peaks$mean_score <- unlist(CENPA_mean_score)
+```
+
+# read in peaks of epigenetic marks
+```{r}
+H3K9me3_peaks <- read.table("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/Xenbase/ChIPseq/peaks/H3K9me3_spermatozoon_adult_GSM1944484_1349_broadPeaks.bed")
+H3K9me3_peaks <- GRanges(seqnames=H3K9me3_peaks$V1, ranges = IRanges(start=H3K9me3_peaks$V2, end=H3K9me3_peaks$V3), ID=H3K9me3_peaks$V4)
+
+H3K4me3_peaks <- read.table("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/Xenbase/ChIPseq/peaks/H3K4me3_sperm_egg_extract_adult_frog_GSM3587294_15598_broadPeaks.bed")
+H3K4me3_peaks <- GRanges(seqnames=H3K4me3_peaks$V1, ranges = IRanges(start=H3K4me3_peaks$V2, end=H3K4me3_peaks$V3), ID=H3K4me3_peaks$V4)
+
+H3K27me3_peaks <- read.table("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/Xenbase/ChIPseq/peaks/H3K27me3_sperm_egg_extract_adult_frog_GSM3587306_15593_broadPeaks.bed")
+H3K27me3_peaks <- GRanges(seqnames=H3K27me3_peaks$V1, ranges = IRanges(start=H3K27me3_peaks$V2, end=H3K27me3_peaks$V3), ID=H3K27me3_peaks$V4)
+```
+
+# chromPlot
+```{r}
+data(hg_gap)
+xenLae2_gap <- read.table("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/UCSC/xenLae2_UCSC_gap.txt")[ ,c(2:4, 8)]
+colnames(xenLae2_gap) <- colnames(hg_gap)
+xenLae2_gap$Chrom <- gsub("chr", "Chr", xenLae2_gap$Chrom)
+
+# gene annotation as bands on chromosomes
+gene_Anno <-gene_annoXeno[!gene_annoXeno$gene_biotype %in% NA & grepl("Chr", seqnames(gene_annoXeno)), ] # filter out mitochondrial and scaffold chromosomes
+
+# add extra padding to non-protein coding genes by resizing anything less than 100kb to 500kb for easier visualization. 
+nonprotein_geneAnno <- gene_Anno[!gene_Anno$gene_biotype %in% "protein_coding", ]
+nonprotein_geneAnno[which(width(nonprotein_geneAnno) < 100000)] <- resize(nonprotein_geneAnno[which(width(nonprotein_geneAnno) < 100000)], fix="center", width=500000)
+# recombine non-protein coding and protein coding genes into a single dataframe for input into chromPlot
+gene_Anno <- as.data.frame(c(gene_Anno[gene_Anno$gene_biotype %in% "protein_coding"], nonprotein_geneAnno))[, c(1:3, 15)]
+colnames(gene_Anno) <- c(colnames(hg_gap)[1:3], "Group")
+
+# specify colors to be used for annotating gene_biotype. 
+gene_AnnoColorMatch <- data.frame(Group=unique(gene_Anno$Group), Colors=c(pal_bmj()(5), pal_npg()(9)))
+gene_AnnoColorMatch$Colors
+gene_Anno$Colors <- gene_AnnoColorMatch[match(gene_Anno$Group, gene_AnnoColorMatch$Group), ]$Colors
+
+CENPA_df <- as.data.frame(CENPA_peaks)[ ,c(1:3,6)]
+colnames(CENPA_df) <- c(colnames(hg_gap)[1:3], "mean_score")
+
+# histone marks annotation dataframe
+H3K9me3_df <- as.data.frame(H3K9me3_peaks)[ ,1:3]
+colnames(H3K9me3_df) <- colnames(hg_gap)[1:3]
+H3K4me3_df <- as.data.frame(H3K4me3_peaks)[ ,1:3]
+colnames(H3K4me3_df) <- colnames(hg_gap)[1:3]
+H3K27me3_df <- as.data.frame(H3K27me3_peaks)[ ,1:3]
+colnames(H3K27me3_df) <- colnames(hg_gap)[1:3]
+
+MitoticUp_df <-  as.data.frame(sigatacpeaksclust$MitoticUp)[ ,c(1:3, 6,7)]
+colnames(MitoticUp_df) <- c(colnames(hg_gap)[1:3], "ID", "weight")
+InterphaseUp_df <-  as.data.frame(sigatacpeaksclust$InterphaseUp)[ ,c(1:3, 6,7)]
+colnames(InterphaseUp_df) <- c(colnames(hg_gap)[1:3], "ID", "weight")
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/chromPlot_IvsM_sigPeaks_perBin.pdf", width=15, height=15)
+chromPlot(annot1=MitoticUp_df, annot2=InterphaseUp_df, annot3 = CENPA_df, annot4=H3K9me3_df,
+          colAnnot1 = "#24325FFF",
+          colAnnot2 = "#B7E4F9FF",
+          colAnnot3 = "gold",
+          colAnnot4 = "salmon",
+          bands = gene_Anno[!gene_Anno$Group %in% "protein_coding", ],
+          gaps = xenLae2_gap, chrSide=c(1, 1, -1, -1, 1, -1, -1, -1), scex=0.5)
+dev.off()
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/chromPlot_CENPA_peaks_rlogCounts_in_IvsM_sigPeaks.pdf", width=15, height=15)
+chromPlot(annot1=CENPA_df, annot2=H3K9me3_df,
+  stat2=MitoticUp_df[ ,-4], stat = InterphaseUp_df[ ,-4], 
+          statCol = "weight", statCol2 = "weight", statName2 = "Mitotic Up: rlogCounts in Peaks", statName = "Interphase Up: rlogCounts in Peaks",
+          colStat2 = "#24325FFF",
+          colStat = "#B7E4F9FF",
+          colAnnot1 = "gold",
+          colAnnot2 = "salmon",
+  bands = gene_Anno[!gene_Anno$Group %in% "protein_coding", ],
+          gaps = xenLae2_gap, chrSide=c(1, 1, -1, -1, 1, -1, -1, -1), scex=0.5, 
+          scale.title = "CENPA & H3K9me3 peaks")
+dev.off()
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/chromPlot_histonemods_peaksperBin_in_IvsM_sigPeaks.pdf", width=15, height=15)
+chromPlot(annot1=CENPA_df, annot2=H3K9me3_df,
+  stat2=MitoticUp_df[ ,-4], stat = InterphaseUp_df[ ,-4], 
+          statCol = "weight", statCol2 = "weight", statName2 = "Mitotic Up: rlogCounts in Peaks", statName = "Interphase Up: rlogCounts in Peaks",
+          colStat2 = "#24325FFF",
+          colStat = "#B7E4F9FF",
+          colAnnot1 = "gold",
+          colAnnot2 = "salmon",
+  bands = gene_Anno[!gene_Anno$Group %in% "protein_coding", ],
+          gaps = xenLae2_gap, chrSide=c(-1, -1, -1, -1, 1, -1, 1, 1), scex=0.5, 
+          scale.title = "CENPA & H3K9me3 peaks")
+
+chromPlot(annot1=H3K4me3_df, annot2=H3K27me3_df, 
+  stat2=MitoticUp_df[ ,-4], stat = InterphaseUp_df[ ,-4], 
+          statCol = "weight", statCol2 = "weight", statName2 = "Mitotic Up: rlogCounts in Peaks", statName = "Interphase Up: rlogCounts in Peaks",
+          colStat2 = "#24325FFF",
+          colStat = "#B7E4F9FF",
+          colAnnot2 = "orange",
+          colAnnot1 = "darkolivegreen",
+  bands = gene_Anno[!gene_Anno$Group %in% "protein_coding", ],
+          gaps = xenLae2_gap, chrSide=c(-1, -1, -1, -1, 1, -1, 1, 1), scex=0.5, 
+          scale.title = "H3K27me3 & H3K4me3 peaks")
+
+chromPlot(annot1=CENPA_df, annot2=H3K9me3_df, annot3=H3K4me3_df, annot4=H3K27me3_df, 
+          colStat2 = "#24325FFF",
+          colStat = "#B7E4F9FF",
+           colAnnot1 = "gold",
+          colAnnot2 = "salmon",
+          colAnnot3 = "darkolivegreen",
+          colAnnot4 = "orange",
+  bands = gene_Anno[!gene_Anno$Group %in% "protein_coding", ],
+          gaps = xenLae2_gap, chrSide=c(-1, -1, 1, 1, 1, -1, 1, 1), scex=0.5, 
+          scale.title = "CENPA and histone mods peaks")
+dev.off()
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/chromPlot_CENPA_signal.in.peaks_rlogCounts_in_IandM_sigPeaks.pdf", width=15, height=15)
+chromPlot(
+  stat2=CENPA_df, stat = InterphaseUp_df[ ,-4], 
+          statCol = "weight", statCol2 = "mean_score",
+          colStat2 =  "gold",
+          colStat = "#B7E4F9FF",
+          statName2 = "CENPA bigwig signal", 
+          statName = "Interphase ATAC-seq rlog Counts in peaks",
+          bands = gene_Anno,
+          gaps = xenLae2_gap, chrSide=c(1, 1, -1, -1, 1, -1, -1, 1), title="all genebiotypes annotated", scex=0.5)
+chromPlot(
+  stat2=CENPA_df, stat = MitoticUp_df[ ,-4], 
+          statCol = "weight", statCol2 = "mean_score",
+          colStat2 =  "gold",
+          colStat = "#24325FFF",
+          statName2 = "CENPA bigwig signal", 
+          statName = "Mitotic ATAC-seq rlog Counts in peaks",
+          bands = gene_Anno,
+          gaps = xenLae2_gap, chrSide=c(1, 1, -1, -1, 1, -1, -1, 1), title="all genebiotypes annotated", scex=0.5)
+chromPlot(
+  stat2=CENPA_df, stat = InterphaseUp_df[ ,-4], 
+          statCol = "weight", statCol2 = "mean_score",
+          colStat2 =  "gold",
+          colStat = "#B7E4F9FF",
+          statName2 = "CENPA bigwig signal", 
+          statName = "Interphase ATAC-seq rlog Counts in peaks",
+          bands = gene_Anno[!gene_Anno$Group %in% "protein_coding", ],
+          gaps = xenLae2_gap, chrSide=c(1, 1, -1, -1, 1, -1, -1, 1), title="without protein coding genes", scex=0.5)
+chromPlot(
+  stat2=CENPA_df, stat = MitoticUp_df[ ,-4], 
+          statCol = "weight", statCol2 = "mean_score",
+          colStat2 =  "gold",
+          colStat = "#24325FFF",
+          statName = "Mitotic ATAC-seq rlog Counts in peaks", 
+          statName2 = "CENPA bigwig signal",
+          bands = gene_Anno[!gene_Anno$Group %in% "protein_coding", ],
+          gaps = xenLae2_gap, chrSide=c(1, 1, -1, -1, 1, -1, -1, 1), title="without protein coding genes", scex=0.5)
+dev.off()
+```
+
+# Interphase vs Mitotic Up peaks overlap with CENPA and histone mod peaks
+```{r}
+histonemods_peakslist <- list(CENPA=CENPA_peaks, H3K9me3=H3K9me3_peaks, H3K27me3=H3K27me3_peaks, H3K4me3=H3K4me3_peaks)
+Overlap_histoneMods_stats <- data.frame(ATAC_PeakType=c(rep("Mitotic Up", 4), rep("Interphase Up", 4)), ATAC_peaks=c(rep(length(sigatacpeaksclust$MitoticUp), 4), rep(length(sigatacpeaksclust$InterphaseUp), 4)),
+                                        Peaks_Overlap=c(unlist(lapply(lapply(histonemods_peakslist, findOverlaps, sigatacpeaksclust$MitoticUp), length)), 
+                                                                                                       unlist(lapply(lapply(histonemods_peakslist, findOverlaps, sigatacpeaksclust$InterphaseUp), length))), 
+                                        Histone_Mod_PeakType=c("CENPA", "H3K9me3", "H3K27me3", "H3K4me3"))
+Overlap_histoneMods_stats$Percent_Peaks_Overlap <- Overlap_histoneMods_stats$Peaks_Overlap/Overlap_histoneMods_stats$ATAC_peaks*100
+
+Overlap_histoneMods_anno <- list()
+Overlap_histoneMods_anno$IPeaksOverlap <- lapply(histonemods_peakslist, function(histonemods_peakslist){
+  subset <- subsetByOverlaps(sigatacpeaksclust$InterphaseUp, histonemods_peakslist)
+  annotatePeak(subset, TxDb=TxDb.Xeno)
+})
+Overlap_histoneMods_anno$MPeaksOverlap <- lapply(histonemods_peakslist, function(histonemods_peakslist){
+  subset <- subsetByOverlaps(sigatacpeaksclust$MitoticUp, histonemods_peakslist)
+  annotatePeak(subset, TxDb=TxDb.Xeno)
+})
+
+Overlap_histoneMods_anno$allPeaksOverlap <- lapply(histonemods_peakslist, function(histonemods_peakslist){
+  subset <- subsetByOverlaps(reducedatacmasterpeaksfilt, histonemods_peakslist)
+  annotatePeak(subset, TxDb=TxDb.Xeno)
+})
+
+Overlap_histoneMods_anno$histoneMods <- lapply(histonemods_peakslist, annotatePeak, TxDb=TxDb.Xeno)
+
+
+
+histone_modColors=c("CENPA"="gold","H3K9me3"= "salmon","H3K27me3"="orange","H3K4me3"="darkolivegreen")
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/Overlap_histoneMods_stats.pdf")       
+ggplot(Overlap_histoneMods_stats, aes(x=Histone_Mod_PeakType, y=Percent_Peaks_Overlap, fill=Histone_Mod_PeakType))+geom_bar(stat="identity")+
+  facet_grid(~ATAC_PeakType)+theme_classic()+
+  theme(axis.text.x = element_text(angle=90, size=12), axis.text.y = element_text(size=12), text = element_text(size = 12))+
+  ggtitle("Interphase vs M phase ATAC-seq Peaks Overlap with Epigenetic Marks")+
+  scale_fill_manual(values = histone_modColors)+
+  xlab("Epigenetics Marks")+ylab("% ATAC-seq Peaks Overlap")
+for(i in 1:length(Overlap_histoneMods_anno$IPeaksOverlap)){
+  plotAnnoPie(Overlap_histoneMods_anno$IPeaksOverlap[[i]], main=paste0("Interphase Up ATAC-seq Peaks overlapping ", names(Overlap_histoneMods_anno$histoneMods)[i], " peaks"))
+}
+for(i in 1:length(Overlap_histoneMods_anno$MPeaksOverlap)){
+  plotAnnoPie(Overlap_histoneMods_anno$MPeaksOverlap[[i]], main=paste0("Mitotic Up ATAC-seq Peaks overlapping ", names(Overlap_histoneMods_anno$histoneMods)[i], " peaks"))
+}
+
+for(i in 1:length(Overlap_histoneMods_anno$histoneMods)){
+  plotAnnoPie(Overlap_histoneMods_anno$histoneMods[[i]], main=paste0("All ", names(Overlap_histoneMods_anno$histoneMods)[i], " peaks"))
+}
+dev.off()
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/Overlap_histoneMods_stats_allPeaks.pdf")
+for(i in 1:length(Overlap_histoneMods_anno$histoneMods)){
+  plotAnnoPie(Overlap_histoneMods_anno$allPeaksOverlap[[i]], main=paste0("All ", names(Overlap_histoneMods_anno$allPeaksOverlap)[i], " peaks"))
+}
+dev.off()
+```
+# plotting TSS Cov
+```{r}
+#Plotting for cut-sites
+bigwigs <- as.list(dir('/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs', pattern=".bw$", full.names=T))
+
+names(bigwigs) <- gsub("_merged_scaleFactornorm.bw", "", dir('/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs', pattern=".bw$"))
+
+# make TSS GRanges (specified as 3kb up and downstream of start of gene. )
+TSS <- resize(gene_annoXeno[!gene_annoXeno$gene_biotype %in% NA &grepl("Chr", seqnames(gene_annoXeno)), 1:10], fix="start", width=1)
+
+
+library(soGGi)
+load("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Tn5_offset_cutsCoverage/Interphase_reps_cutsCoverage.RData")
+Interphase_cutsCoverage <- cutsCoverage
+
+load("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Tn5_offset_cutsCoverage/Interphase_reps_cutsCoverage.RData")
+Interphase_cutsCoverage <- cutsCoverage
+
+load("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Tn5_offset_cutsCoverage/Mitotic_reps_cutsCoverage.RData")
+Mitotic_cutsCoverage <- cutsCoverage
+
+InterphaseCuts <- lapply(Interphase_cutsCoverage, regionPlot, testRanges = TSS, style = "point", format = "rlelist", distanceAround = 3000, method="bp")
+save(InterphaseCuts, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/InterphaseCuts.RData")
+  
+MitoticCuts <- lapply(Mitotic_cutsCoverage, regionPlot, testRanges = TSS, style = "point", format = "rlelist", distanceAround = 3000, method="bp")
+save(MitoticCuts, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/MitoticCuts.RData")
+
+InterphasegeneBodies <- lapply(Interphase_cutsCoverage, regionPlot, testRanges = gene_annoXeno, style = "percentOfRegion", format = "rlelist")
+save(InterphasegeneBodies, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/InterphasegeneBodies.RData")
+  
+MitoticgeneBodies <- lapply(Mitotic_cutsCoverage, regionPlot, testRanges = gene_annoXeno, style = "percentOfRegion", format = "rlelist", distanceAround = 3000, method="bp")
+save(MitoticgeneBodies, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/workspaces/MitoticgeneBodies.RData")
+
+cutsPlots <- c(InterphaseCuts[[1]], InterphaseCuts[[2]], InterphaseCuts[[3]], MitoticCuts[[1]], MitoticCuts[[2]], MitoticCuts[[3]])
+cutsPlots@metadata[["names"]] <- samplenames
+
+plotRegion(cutsPlots, colourBy = "Sample") + ggtitle("TSS Coverage")+scale_color_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))
+```
+
+```{r}
+# ggsci materials palette blue and indigo used. 
+"#E3F2FDFF" "#BADEFAFF" "#90CAF8FF" "#64B4F6FF" "#41A5F4FF" "#2096F2FF" "#1E87E5FF" "#1976D2FF" "#1465BFFF" "#0C46A0FF"
+ "#E7EAF6FF" "#C5CAE9FF" "#9FA7D9FF" "#7985CBFF" "#5B6BBFFF" "#3F51B4FF" "#3948ABFF" "#303F9FFF" "#273492FF" "#19227EFF"
+```
+
+
