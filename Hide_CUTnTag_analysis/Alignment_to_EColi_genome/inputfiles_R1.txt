@@ -1,0 +1,4 @@
+/lustre/fs4/fnbk_lab/scratch/hkonishi/testRunCheck/forJoanna/cntHAK007/cntHAK007_S7_R1_001.trim.fastq.gz
+/lustre/fs4/fnbk_lab/scratch/hkonishi/testRunCheck/forJoanna/cntHAK008/cntHAK008_S8_R1_001.trim.fastq.gz
+/lustre/fs4/fnbk_lab/scratch/hkonishi/testRunCheck/forJoanna/cntHAK009/cntHAK009_S9_R1_001.trim.fastq.gz
+/lustre/fs4/fnbk_lab/scratch/hkonishi/testRunCheck/forJoanna/cntHAK010/cntHAK010_S10_R1_001.trim.fastq.gz
