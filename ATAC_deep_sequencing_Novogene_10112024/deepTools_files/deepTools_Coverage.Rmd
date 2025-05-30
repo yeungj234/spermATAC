@@ -1,0 +1,126 @@
+---
+title: "deepTools_Coverage"
+author: "Joanna Yeung"
+date: "2025-05-25"
+output: html_document
+---
+
+```{r}
+library(GenomicRanges)
+library(rtracklayer)
+```
+
+```{r}
+CENPA <- lapply(dir("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/Xenbase/ChIPseq/peaks", full.names=T), read.table)
+CENPA_peaks <- list()
+for(i in 1:length(CENPA)){
+  CENPA_peaks[[i]] <- GRanges(seqnames=CENPA[[i]]$V1, ranges = IRanges(start=CENPA[[i]]$V2, end=CENPA[[i]]$V3), ID=CENPA[[i]]$V4)
+}
+# merge replicates into a single peak set and remove scaffold chromosomes
+CENPA_peaks <- reduce(unlist(GRangesList(CENPA_peaks)))
+CENPA_peaks <- CENPA_peaks[grepl("Chr", seqnames(CENPA_peaks))]
+
+export.bed(CENPA_peaks, "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files/input_files/beds/CENPA_masterpeaks.bed")
+```
+
+# plot ATAC signal around over centromeric regions defined by Smith, Owen K., et al. "Identification and characterization of centromeric sequences in Xenopus laevis." Genome Research 31.6 (2021): 958-967.
+
+
+```{bash}
+# plot Tn5 cut sites
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files
+sbatch deeptools_Coverage_over_centromeres.slurm
+
+# plot whole fragment size
+sbatch deeptools_wholefrag_over_centromeres.slurm
+
+# although signal at centromeres is stronger in mitotic samples overall, it dips around the centromeric region which indicates that the reads that are kept after filtering just have strong homology near the centromeres... so I am going to rerun the alignment to keep multi-mapped reads and then replot the coverage over the centromeric regions. 
+```
+
+# Since we do see M signal over centromeres being higher, to verify, see if there is no difference at non-centromeric regions in I vs M phase. 
+```{r}
+# import Centromeric regions defined by kmer analysis done by Smith, Owen K., et al. "Identification and characterization of centromeric sequences in Xenopus laevis." Genome Research 31.6 (2021): 958-967
+CENPA_OwenSmith_regions <- import.bed("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/GSE153058_xla_v10.2_cen.bed")
+
+# read in index file for Xenopus_laevis_v10.1
+xenLae2 <- read.table("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1_genomic.fna.fai", sep="\t")
+
+# make GRanges object for whole genome
+xenLae2_GR <- GRanges(seqnames=xenLae2$V1, ranges=IRanges(start=1, end=xenLae2$V2))
+
+# tile the genome for each chromosome as the same width as the centromeric region then filter for tiles that do not overlap the centromere to plot signal over non-centromeric regions. 
+xenLae2_tiles <- list()
+for(i in 1:18){
+xenLae2_tiles[[i]] <- tile(xenLae2_GR[i], width=width(CENPA_OwenSmith_regions)[i])  
+xenLae2_tiles[[i]] <- tile(xenLae2_GR[i], width=width(CENPA_OwenSmith_regions)[i])  
+xenLae2_tiles[[i]] <- unlist(xenLae2_tiles[[i]])
+xenLae2_tiles[[i]] <- xenLae2_tiles[[i]][!xenLae2_tiles[[i]] %over% CENPA_OwenSmith_regions]
+}
+nonCentromere_bins <- unlist(GRangesList(xenLae2_tiles))
+# export non-centromeric regions based on tiles that do not overlap with Owen Smith's enriched kmer regions for input into deeptools. 
+export.bed(nonCentromere_bins, "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/nonCentromere_bins_based_on_GSE153058.bed")
+
+
+# instead of all non-centromeric regions, do a same size as centromere region for start & end of chromosomes so that the number of regions plotted is the same as centromeric regions plotted. 
+chromStart <- unlist(GRangesList(lapply(xenLae2_tiles, function(x){x[1]})))
+chromEnd <- unlist(GRangesList(lapply(xenLae2_tiles, function(x){i <- length(x)
+                                                                end <- x[i]
+                                                                return(end)})))
+export.bed(chromStart,  "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/chromStart_samesizeasCentromere.bed")
+export.bed(chromEnd,  "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/chromEnd_samesizeasCentromere.bed")
+```
+
+```{bash}
+source activate encode-atac-seq-pipeline
+
+BIGWIG_FILES="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/atacHAK001_merged_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/atacHAK007_merged_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/atacHAK023_merged_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/atacHAK002_merged_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/atacHAK024_merged_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/scaleFactornorm_bigwigs/atacHAK025_merged_scaleFactornorm.bw"
+samplenames="Interphase_1 Interphase_2 Interphase_3 Mitotic_1 Mitotic_2 Mitotic_3"
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files
+GENOMIC_REGIONS=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/chromStart_samesizeasCentromere.bed
+NAME="IvsM_ATAC_over_chromosomeStart_5kb_coverage"
+computeMatrix scale-regions \
+	-S $BIGWIG_FILES \
+	-R $GENOMIC_REGIONS \
+	-b 5000 -a 5000 -bs=10 -p=max \
+	--regionBodyLength 1000 \
+	--startLabel "start" \
+	--endLabel "end" \
+ 	-out $NAME\_matrix.gz \
+ 	--numberOfProcessors "max" \
+ 	--skipZeros \
+        --outFileSortedRegions $NAME\_sorted_regions.bed 
+
+plotProfile -m $NAME\_matrix.gz \
+    -out /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files/plotProfile/$NAME\_profile.pdf \
+    --perGroup \
+    --colors "#BADEFAFF" "#90CAF8FF" "#64B4F6FF" "#9FA7D9FF" "#5B6BBFFF" "#19227EFF" \
+    --samplesLabel $samplenames \
+	--startLabel "start" \
+	--endLabel "end" \
+    --plotTitle "$NAME" \
+    --yMin 0 \
+    --yMax 50 
+
+plotHeatmap -m $NAME\_matrix.gz \
+    -out  /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files/plotHeatmap/$NAME\_heatmap.pdf \
+    --colorMap inferno \
+    --samplesLabel $samplenames \
+	--startLabel "start" \
+	--endLabel "end" \
+    --plotTitle "$NAME" \
+    --yMin 0 \
+    --yMax 50 
+```
+
+
+```{bash}
+# plot whole fragments over tiles of the same width of each centromere on each chromosome but are non-centromeric regions. 
+sbatch -p risc /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files/deeptools_wholepeaks_over_NONcentromeres.slurm
+```
+
+
