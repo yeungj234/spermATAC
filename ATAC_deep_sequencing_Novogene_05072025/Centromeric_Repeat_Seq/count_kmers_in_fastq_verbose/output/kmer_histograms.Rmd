@@ -16,10 +16,9 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r 25mers}
-setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output")
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/25mers")
 kmer_summary <- dir(pattern="summary.tsv")
-total_reads <- c(66233269, 91756371, 81105822 , 54252756, 62717380, 115703381)
-names(total_reads) <- gsub("_counts_summary.tsv", "", kmer_summary)
+total_reads <- c("atacHAK034"=73824514, "atacHAK035"=53748309, "atacHAK036"=64541163, "atacHAK040"=49647880, "atacHAK041"=67337271, "atacHAK042"=65405728, "atacHAK045"=89210475)
 hist <- list()
 for(i in 1:length(kmer_summary)){
         hist[[i]] <- read.table(kmer_summary[i], header=T, stringsAsFactors = FALSE)
@@ -29,44 +28,45 @@ for(i in 1:length(kmer_summary)){
         hist[[i]]$sample <- names(total_reads)[i]
 }
 names(hist) <- names(total_reads) 
-hist <- hist[c(1,3,4,2,5,6)]
+hist <- hist[c(1,4,2,5,3,6,7)]
 
 hist_merged <- do.call(rbind, hist)
 hist_merged$sample <- factor(hist_merged$sample, levels=names(hist))
-hist_merged$Condition <- ifelse(hist_merged$sample %in% names(hist)[1:3], "Interphase", "Mitosis")
+hist_merged$Condition <- ifelse(hist_merged$sample %in% names(hist)[1:2], "Mitosis_WT", ifelse(hist_merged$sample %in% names(hist)[3:4], "Mitosis_43AMut", "Mitosis_HIDMut"))
+
+#brewer.pal(9, "PuRd")
+#brewer.pal(9, "Greens")
+#brewer.pal(9, "Greys")
+ 
 library(ggplot2)
-pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/Figures"
-pdf(paste0(pdf_dir, "/IvsM_25mer_freq_in_dedup_fastq-reads.pdf"), width=8, height=4)
+pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/Figures"
+pdf(paste0(pdf_dir, "/M_WTvs43AvsHID_25mer_freq_in_dedup_fastq-reads.pdf"), width=8, height=4)
 ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample, alpha=0.3), color="black")+
         geom_bar(stat="identity", position="identity",  color="black", size=0.1)+
-        scale_fill_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
+        scale_fill_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         ylim(0,0.03)+
         facet_wrap(~Condition)+
         ylab("% Total Reads")+
         xlab("Number of kmers found")+
         theme_minimal()
-
 ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample))+
         geom_bar(stat="identity", size=0.1,  color="black")+
-        scale_fill_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
+        scale_fill_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         ylim(0,0.03)+
         facet_wrap(Condition~sample)+
         ylab("% Total Reads")+
         xlab("Number of kmers found")+
         theme_minimal()
-
-ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample))+
-        geom_bar(stat="identity", size=0.05, color="black")+
-        scale_fill_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
-        ylim(0,0.03)+
-        facet_wrap(Condition~sample)+
-        ylab("% Total Reads")+
-        xlab("Number of kmers found")+
-        theme_minimal()
-
 ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, color=sample,))+
         geom_line(stat="identity", position="identity", size=1)+
-        scale_color_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
+        scale_color_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
+        ylim(0,0.03)+
+        ylab("% Total Reads")+
+        xlab("Number of kmers found")+
+        theme_minimal()
+ggplot(hist_merged[hist_merged$kmer_frequencies >= 5, ], aes(x=kmer_frequencies, y=Percent_total_reads, color=sample,))+
+        geom_line(stat="identity", position="identity", size=1)+
+        scale_color_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         ylim(0,0.03)+
         ylab("% Total Reads")+
         xlab("Number of kmers found")+
@@ -80,15 +80,14 @@ Reads_with_kmers_stats <- lapply(hist, function(x){percent_no_kmers_reads <- x[x
                         return(df)
                         })
 Reads_with_kmers_stats <- do.call(rbind, Reads_with_kmers_stats)
-Reads_with_kmers_stats$total_reads <- total_reads[c(1,3,4,2,5,6)]
+Reads_with_kmers_stats$total_reads <- total_reads
 Reads_with_kmers_stats 
 ```
 
 ```{r 10mers}
-setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/10mers")
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/10mers")
 kmer_summary <- dir(pattern="summary.tsv")
-total_reads <- c(66233269, 91756371, 81105822 , 54252756, 62717380, 115703381)
-names(total_reads) <- gsub("_counts_summary.tsv", "", kmer_summary)
+total_reads <- c("atacHAK034"=73824514, "atacHAK035"=53748309, "atacHAK036"=64541163, "atacHAK040"=49647880, "atacHAK041"=67337271, "atacHAK042"=65405728, "atacHAK045"=89210475)
 hist <- list()
 for(i in 1:length(kmer_summary)){
         hist[[i]] <- read.table(kmer_summary[i], header=T, stringsAsFactors = FALSE)
@@ -98,55 +97,45 @@ for(i in 1:length(kmer_summary)){
         hist[[i]]$sample <- names(total_reads)[i]
 }
 names(hist) <- names(total_reads) 
-hist <- hist[c(1,3,4,2,5,6)]
+hist <- hist[c(1,4,2,5,3,6,7)]
 
 hist_merged <- do.call(rbind, hist)
 hist_merged$sample <- factor(hist_merged$sample, levels=names(hist))
-hist_merged$Condition <- ifelse(hist_merged$sample %in% names(hist)[1:3], "Interphase", "Mitosis")
+hist_merged$Condition <- ifelse(hist_merged$sample %in% names(hist)[1:2], "Mitosis_WT", ifelse(hist_merged$sample %in% names(hist)[3:4], "Mitosis_43AMut", "Mitosis_HIDMut"))
+
+#brewer.pal(9, "PuRd")
+#brewer.pal(9, "Greens")
+#brewer.pal(9, "Greys")
+ 
 library(ggplot2)
-library(cowplot)
-pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/Figures"
-pdf(paste0(pdf_dir, "/IvsM_10mer_freq_in_dedup_fastq-reads.pdf"), width=12, height=5)
-plot_grid(
+pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/Figures"
+pdf(paste0(pdf_dir, "/M_WTvs43AvsHID_10mer_freq_in_dedup_fastq-reads.pdf"), width=8, height=4)
+ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample, alpha=0.3), color="black")+
+        geom_bar(stat="identity", position="identity",  color="black", size=0.1)+
+        scale_fill_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
+        facet_wrap(~Condition)+
+        ylab("% Total Reads")+
+        xlab("Number of kmers found")+
+        theme_minimal()
 ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample))+
         geom_bar(stat="identity", size=0.1,  color="black")+
-        scale_fill_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
-        ylim(0,8.5)+
+        scale_fill_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         facet_wrap(Condition~sample)+
         ylab("% Total Reads")+
         xlab("Number of kmers found")+
-        ggtitle(">=1 10-mers found per read plotted")+
-        theme(legend.position = "none")+
-        theme_minimal(),
-ggplot(hist_merged[hist_merged$kmer_frequencies >=5, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample))+
-        geom_bar(stat="identity", size=0.1,  color="black")+
-        scale_fill_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
-        facet_wrap(Condition~sample)+
-        ylab("% Total Reads")+
-        xlab("Number of 10-mers found")+
-        ggtitle(">=5 10-mers found per read plotted")+
-        theme(legend.position = "none")+
         theme_minimal()
-)
-
-plot_grid(ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, color=sample,))+
+ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, color=sample,))+
         geom_line(stat="identity", position="identity", size=1)+
-        scale_color_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
+        scale_color_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         ylab("% Total Reads")+
-        xlab("Number of 10-mers found")+
-        ggtitle(">=1 10-mers found per read plotted")+
-        theme(legend.position = "none")+
-        theme_minimal(),
-
+        xlab("Number of kmers found")+
+        theme_minimal()
 ggplot(hist_merged[hist_merged$kmer_frequencies >= 5, ], aes(x=kmer_frequencies, y=Percent_total_reads, color=sample,))+
         geom_line(stat="identity", position="identity", size=1)+
-        scale_color_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
+        scale_color_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         ylab("% Total Reads")+
-        xlab("Number of 10-mers found")+
-        ggtitle(">=5 10-mers found per read plotted")+
-        theme(legend.position = "none")+
+        xlab("Number of 10-mers found >= 5")+
         theme_minimal()
-)
 dev.off()
 
 Reads_with_kmers_stats <- lapply(hist, function(x){percent_no_kmers_reads <- x[x$kmer_frequencies ==0, ]$Percent_total_reads
@@ -156,16 +145,15 @@ Reads_with_kmers_stats <- lapply(hist, function(x){percent_no_kmers_reads <- x[x
                         return(df)
                         })
 Reads_with_kmers_stats <- do.call(rbind, Reads_with_kmers_stats)
-Reads_with_kmers_stats$total_reads <- total_reads[c(1,3,4,2,5,6)]
-Reads_with_kmers_stats 
+Reads_with_kmers_stats$total_reads <- total_reads
+Reads_with_kmers_stats
 ```
 
 
 ```{r 15mers}
-setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/15mers")
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/15mers")
 kmer_summary <- dir(pattern="summary.tsv")
-total_reads <- c(66233269, 91756371, 81105822 , 54252756, 62717380, 115703381)
-names(total_reads) <- gsub("_counts_summary.tsv", "", kmer_summary)
+total_reads <- c("atacHAK034"=73824514, "atacHAK035"=53748309, "atacHAK036"=64541163, "atacHAK040"=49647880, "atacHAK041"=67337271, "atacHAK042"=65405728, "atacHAK045"=89210475)
 hist <- list()
 for(i in 1:length(kmer_summary)){
         hist[[i]] <- read.table(kmer_summary[i], header=T, stringsAsFactors = FALSE)
@@ -175,54 +163,45 @@ for(i in 1:length(kmer_summary)){
         hist[[i]]$sample <- names(total_reads)[i]
 }
 names(hist) <- names(total_reads) 
-hist <- hist[c(1,3,4,2,5,6)]
+hist <- hist[c(1,4,2,5,3,6,7)]
 
 hist_merged <- do.call(rbind, hist)
 hist_merged$sample <- factor(hist_merged$sample, levels=names(hist))
-hist_merged$Condition <- ifelse(hist_merged$sample %in% names(hist)[1:3], "Interphase", "Mitosis")
+hist_merged$Condition <- ifelse(hist_merged$sample %in% names(hist)[1:2], "Mitosis_WT", ifelse(hist_merged$sample %in% names(hist)[3:4], "Mitosis_43AMut", "Mitosis_HIDMut"))
+
+#brewer.pal(9, "PuRd")
+#brewer.pal(9, "Greens")
+#brewer.pal(9, "Greys")
+ 
 library(ggplot2)
-library(cowplot)
-pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/Figures"
-pdf(paste0(pdf_dir, "/IvsM_15mer_freq_in_dedup_fastq-reads.pdf"), width=12, height=5)
-plot_grid(
+pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/Figures"
+pdf(paste0(pdf_dir, "/M_WTvs43AvsHID_15mer_freq_in_dedup_fastq-reads.pdf"), width=8, height=4)
+ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample, alpha=0.3), color="black")+
+        geom_bar(stat="identity", position="identity",  color="black", size=0.1)+
+        scale_fill_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
+        facet_wrap(~Condition)+
+        ylab("% Total Reads")+
+        xlab("Number of kmers found")+
+        theme_minimal()
 ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample))+
         geom_bar(stat="identity", size=0.1,  color="black")+
-        scale_fill_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
+        scale_fill_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         facet_wrap(Condition~sample)+
         ylab("% Total Reads")+
         xlab("Number of kmers found")+
-        ggtitle(">=1 15-mers found per read plotted")+
-        theme(legend.position = "none")+
-        theme_minimal(),
-ggplot(hist_merged[hist_merged$kmer_frequencies >=5, ], aes(x=kmer_frequencies, y=Percent_total_reads, fill=sample))+
-        geom_bar(stat="identity", size=0.1,  color="black")+
-        scale_fill_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
-        facet_wrap(Condition~sample)+
-        ylab("% Total Reads")+
-        xlab("Number of 15-mers found")+
-        ggtitle(">=5 15-mers found per read plotted")+
-        theme(legend.position = "none")+
         theme_minimal()
-)
-
-plot_grid(ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, color=sample,))+
+ggplot(hist_merged[!hist_merged$kmer_frequencies == 0, ], aes(x=kmer_frequencies, y=Percent_total_reads, color=sample,))+
         geom_line(stat="identity", position="identity", size=1)+
-        scale_color_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
+        scale_color_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         ylab("% Total Reads")+
-        xlab("Number of 15-mers found")+
-        ggtitle(">=1 15-mers found per read plotted")+
-        theme(legend.position = "none")+
-        theme_minimal(),
-
+        xlab("Number of kmers found")+
+        theme_minimal()
 ggplot(hist_merged[hist_merged$kmer_frequencies >= 5, ], aes(x=kmer_frequencies, y=Percent_total_reads, color=sample,))+
         geom_line(stat="identity", position="identity", size=1)+
-        scale_color_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF"))+
+        scale_color_manual(values=c("#C994C7","#980043", "#969696","#252525", "#A1D99B", "#31A354", "#00441B"))+
         ylab("% Total Reads")+
-        xlab("Number of 15-mers found")+
-        ggtitle(">=5 15-mers found per read plotted")+
-        theme(legend.position = "none")+
+        xlab("Number of kmers found >=5")+
         theme_minimal()
-)
 dev.off()
 
 Reads_with_kmers_stats <- lapply(hist, function(x){percent_no_kmers_reads <- x[x$kmer_frequencies ==0, ]$Percent_total_reads
@@ -232,8 +211,8 @@ Reads_with_kmers_stats <- lapply(hist, function(x){percent_no_kmers_reads <- x[x
                         return(df)
                         })
 Reads_with_kmers_stats <- do.call(rbind, Reads_with_kmers_stats)
-Reads_with_kmers_stats$total_reads <- total_reads[c(1,3,4,2,5,6)]
-Reads_with_kmers_stats 
+Reads_with_kmers_stats$total_reads <- total_reads
+Reads_with_kmers_stats
 ```
 
 ## Including Plots

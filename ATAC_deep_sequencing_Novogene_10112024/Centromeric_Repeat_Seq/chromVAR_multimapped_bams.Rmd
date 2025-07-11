@@ -1,0 +1,68 @@
+---
+title: "ATAc_InterphasevsMitosis_multimapped_06092025"
+author: "Joanna Yeung"
+date: "2025-06-09"
+output: html_document
+---
+
+```{r, warning=F}
+library(GenomicFeatures)
+library(GenomicRanges)
+library(rtracklayer)
+library(chromVAR)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(ChIPseeker)
+library(Biostrings)
+library(readr)
+library(ggrepel)
+library(chromPlot)
+library(rtracklayer)
+```
+
+```{r}
+hm_cols <- list(Condition=c("Interphase"="#B7E4F9FF", "Mitotic"="#24325FFF"),
+                Biorep=c("1"="#4269D0FF", "2"="#EFB118FF", "3"="#FF725CFF"))
+# make TxDb object from Xenopus Laevis gtf file
+TxDb.Xeno <- txdbmaker::makeTxDbFromGFF("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+
+gene_annoXeno <- import("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+```
+
+```{r}
+# read in index file for Xenopus_laevis_v10.1
+xenLae2 <- read.table("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1_genomic.fna.fai", sep="\t")
+# make GRanges object for whole genome
+xenLae2_GR <- GRanges(seqnames=xenLae2$V1, ranges=IRanges(start=1, end=xenLae2$V2))
+# use tile function to create bins of 10kb for the Xenopus genome
+xenLae2_100kb <- tile(xenLae2_GR, width=100000)
+xenLae2_100kb <- unlist(xenLae2_100kb)
+```
+
+```{r}
+samplenames <- c("atacHAK001", "atacHAK002", "atacHAK007", "atacHAK002", "atacHAK024", "atacHAK025")
+# use chromVAR to count fragments across tiles
+bamdir <- list()
+for(i in 1:length(samplenames)){
+  bamdir[[i]] <- dir(paste0("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_2_fastq_align_05272025/", samplenames[i]), pattern="sorted.bam$", full.names=T)
+}
+bamdir <- unlist(bamdir)
+
+fragCounts_multimapped <- list()
+for(i in 1:length(bamdir)){
+fragCounts_multimapped[[i]] <- chromVAR::getCounts(bamdir[i], xenLae2_100kb , paired=TRUE, by_rg=FALSE, format="bam")
+fragCounts_multimapped[[i]] <- SummarizedExperiment::assays(fragCounts_multimapped[[i]])[[1]] # convert fragment Counts into counts matrix  
+}
+
+#combine all samples into a single counts matrix 
+fragCounts_multimapped <- do.call(cbind, fragCounts_multimapped)
+# rename row names of count matrix to be "Chr:start-end_tile"
+row.names(fragCounts_multimapped) <- paste0(unique(seqnames(reducedatacmasterpeaks)), ":", start(reducedatacmasterpeaks), "-", end(reducedatacmasterpeaks))  
+# remove suffix for shorter colnames
+colnames(fragCounts_multimapped) <- gsub("_sorted.bam", "", colnames(fragCounts_multimapped))
+save(fragCounts_multimapped, file="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/R/workspaces/fragCounts_multimapped_multimapped.RData")
+```

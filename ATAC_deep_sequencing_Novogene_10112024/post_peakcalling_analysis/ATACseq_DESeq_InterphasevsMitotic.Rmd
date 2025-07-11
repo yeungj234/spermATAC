@@ -38,7 +38,7 @@ library(rtracklayer)
 hm_cols <- list(Condition=c("Interphase"="#B7E4F9FF", "Mitotic"="#24325FFF"),
                 Biorep=c("1"="#4269D0FF", "2"="#EFB118FF", "3"="#FF725CFF"))
 # make TxDb object from Xenopus Laevis gtf file
-TxDb.Xeno <- makeTxDbFromGFF("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+TxDb.Xeno <- txdbmaker::makeTxDbFromGFF("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
 
 gene_annoXeno <- import("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
 ```
@@ -934,6 +934,88 @@ for(i in 1:length(Overlap_histoneMods_anno$histoneMods)){
 }
 dev.off()
 ```
+
+# venn diagram showing overlap of ATAC-seq peaks with CENPA peaks in Interphase vs Mitosis. 
+```{r}
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures/.pdf", width=10, height=4)
+# Plot the Venn diagram of sig Up peaks that Palbo & Doxo share
+
+merged_atacmasterpeaksfilt <- GRangesList(Interphase=reduce(unlist(GRangesList(atacmasterpeaksfilt[1:3]))), Mitotic=reduce(unlist(GRangesList(atacmasterpeaksfilt[4:6]))))
+merged_atacmasterpeaksfilt <- lapply(merged_atacmasterpeaksfilt, function(x){x$name <- paste0(seqnames(x), ":", start(x), "-", end(x))
+ return(x)}  )
+
+pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures"
+pdf(paste0(pdf_dir, "/CENPApeaks_Overlap_ATACpeaks_each_rep_VennDiagram.pdf"))
+# overlap of Interphase bio reps' ATAC-seq peaks vs CENPA peaks
+create_proportional_venn(sets=list(reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% atacmasterpeaksfilt$atacHAK001]$name, 
+                                   reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% atacmasterpeaksfilt$atacHAK007]$name,
+                                   reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% atacmasterpeaksfilt$atacHAK023]$name,
+                                   reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% CENPA_peaks]$name),
+                         set_labels = c("atacHAK001", "atacHAK007", "atacHAK023", "CENPA"), 
+                         colors = c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "gold")) 
+# overlap of Mitotic bio reps' ATAC-seq peaks vs CENPA peaks
+create_proportional_venn(sets=list(reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% atacmasterpeaksfilt$atacHAK002]$name, 
+                                   reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% atacmasterpeaksfilt$atacHAK024]$name,
+                                   reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% atacmasterpeaksfilt$atacHAK025]$name,
+                                   reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% CENPA_peaks]$name),
+                         set_labels = c("atacHAK001", "atacHAK007", "atacHAK023", "CENPA"), 
+                         colors = c( "#9FA7D9FF", "#5B6BBFFF", "#19227EFF", "gold")) 
+# overlap of ATAC-seq peaks (merged bioreps within each condition) vs CENPA peaks
+create_proportional_venn(sets=list(reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% merged_atacmasterpeaksfilt$Interphase]$name, reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% merged_atacmasterpeaksfilt$Mitotic]$name, reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% CENPA_peaks]$name), 
+                         set_labels = c("Interphase","Mitotic", "CENPA"), 
+                         colors = c("#B7E4F9FF","#24325FFF", "gold"))
+# overlap of up ATAC-seq peaks relative to the other biorep vs CENPA peaks
+create_proportional_venn(sets=list(row.names(InterphaseUp_res), row.names(MitoticUp_res), reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% CENPA_peaks]$name), 
+                         set_labels = c("Interphase Up","Mitotic Up", "CENPA"), 
+                         colors = c("#B7E4F9FF","#24325FFF", "gold"))
+dev.off()
+
+# this tells me that I should redo the master peak set that goes into counting reads under peaks. Instead of reducing all the peaks, I should choose peaks that overlap in all replicates or consider doing IDR & iterative peak filtering. Just looking only at the overall peaks like this shows similar overlap of interphase vs mitotic peaks. 
+
+# keep only peaks that overlap across all bioreps for Interphase samples & merge overlapping peaks via reduce function
+Interphase_reproducible_peaks <- GRangesList(atacHAK001=atacmasterpeaksfilt$atacHAK001[atacmasterpeaksfilt$atacHAK001 %over% c(atacmasterpeaksfilt$atacHAK007, atacmasterpeaksfilt$atacHAK023)], 
+                                             atacHAK007=atacmasterpeaksfilt$atacHAK007[atacmasterpeaksfilt$atacHAK007 %over% c(atacmasterpeaksfilt$atacHAK001, atacmasterpeaksfilt$atacHAK023)], 
+                                             atacHAK023=atacmasterpeaksfilt$atacHAK023[atacmasterpeaksfilt$atacHAK023 %over% c(atacmasterpeaksfilt$atacHAK007, atacmasterpeaksfilt$atacHAK001)])
+Interphase_reproducible_peaks <- reduce(unlist(Interphase_reproducible_peaks))
+
+# do the same for Mitotic samples 
+Mitotic_reproducible_peaks <- GRangesList(atacHAK002=atacmasterpeaksfilt$atacHAK002[atacmasterpeaksfilt$atacHAK002 %over% c(atacmasterpeaksfilt$atacHAK024, atacmasterpeaksfilt$atacHAK025)], 
+                                             atacHAK024=atacmasterpeaksfilt$atacHAK024[atacmasterpeaksfilt$atacHAK024 %over% c(atacmasterpeaksfilt$atacHAK002, atacmasterpeaksfilt$atacHAK025)], 
+                                             atacHAK025=atacmasterpeaksfilt$atacHAK025[atacmasterpeaksfilt$atacHAK025 %over% c(atacmasterpeaksfilt$atacHAK002, atacmasterpeaksfilt$atacHAK024)])
+Mitotic_reproducible_peaks  <- reduce(unlist(Mitotic_reproducible_peaks ))
+
+# redo the venn diagram to compare overlap of reproducible Interphase ATAC-peaks vs Mitotic ATAC-peaks with CENPA
+create_proportional_venn(sets=list(reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% Interphase_reproducible_peaks]$name, reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% Mitotic_reproducible_peaks]$name, reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% CENPA_peaks]$name), 
+                         set_labels = c("Interphase","Mitotic", "CENPA"), 
+                         colors = c("#B7E4F9FF","#24325FFF", "gold"))
+
+# conclusion: not a strong difference between I vs M samples like this... 18% overlap in Mitotic compared to 10% overlap in Interphase but only because there are so many more peaks in Interphase. 
+```
+
+```{r}
+# import Centromeric regions defined by kmer analysis done by Smith, Owen K., et al. "Identification and characterization of centromeric sequences in Xenopus laevis." Genome Research 31.6 (2021): 958-967
+CENPA_OwenSmith_regions <- import.bed("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/GSE153058_xla_v10.2_cen.bed")
+
+pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures"
+pdf(paste0(pdf_dir, "/OKSmith_Centromere_Overlap_ATACpeaks_VennDiagram.pdf"))
+# overlap of all reproducible within conditions ATAC-seq peaks relative to Owen Smith centromeric regions. 
+create_proportional_venn(sets=list(reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% Interphase_reproducible_peaks]$name, reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% Mitotic_reproducible_peaks]$name, reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% CENPA_OwenSmith_regions]$name), 
+                         set_labels = c("Interphase","Mitotic", "CENPA"), 
+                         colors = c("#B7E4F9FF","#24325FFF", "gold"))
+
+# overlap of up ATAC-seq peaks relative to all reproducible peaks within conditions vs Owen Smith centromeric regions. 
+create_proportional_venn(sets=list(row.names(InterphaseUp_res), row.names(MitoticUp_res), reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% CENPA_OwenSmith_regions]$name, reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% Interphase_reproducible_peaks]$name, reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% Mitotic_reproducible_peaks]$name), 
+                         set_labels = c("Interphase Up peaks","Mitotic Up peaks", "Centromere (Smith et al)", "All Interphase peaks", "All Mitotic peaks"), 
+                         colors = c("#64B4F6FF",  "#9FA7D9FF", "gold", "#B7E4F9FF","#24325FFF"))
+
+# overlap of up ATAC-seq peaks vs Owen Smith centromeric regions. 
+create_proportional_venn(sets=list(row.names(InterphaseUp_res), row.names(MitoticUp_res), reducedatacmasterpeaksfilt[reducedatacmasterpeaksfilt %over% CENPA_OwenSmith_regions]$name), 
+                         set_labels = c("Interphase Up peaks","Mitotic Up peaks", "Centromere (Smith et al)"), 
+                         colors = c("#64B4F6FF",  "#9FA7D9FF", "gold", "#B7E4F9FF","#24325FFF"))
+dev.off()
+```
+
+
 # plotting TSS Cov
 ```{r}
 #Plotting for cut-sites

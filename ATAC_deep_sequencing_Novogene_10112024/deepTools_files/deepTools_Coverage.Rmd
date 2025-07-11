@@ -42,6 +42,7 @@ sbatch deeptools_wholefrag_over_centromeres.slurm
 # import Centromeric regions defined by kmer analysis done by Smith, Owen K., et al. "Identification and characterization of centromeric sequences in Xenopus laevis." Genome Research 31.6 (2021): 958-967
 CENPA_OwenSmith_regions <- import.bed("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/GSE153058_xla_v10.2_cen.bed")
 
+
 # read in index file for Xenopus_laevis_v10.1
 xenLae2 <- read.table("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1_genomic.fna.fai", sep="\t")
 
@@ -121,6 +122,50 @@ plotHeatmap -m $NAME\_matrix.gz \
 ```{bash}
 # plot whole fragments over tiles of the same width of each centromere on each chromosome but are non-centromeric regions. 
 sbatch -p risc /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files/deeptools_wholepeaks_over_NONcentromeres.slurm
+```
+
+# plot ATAC-seq coverage over centromeres from bigwigs that originated from bams that allowed for multi-mappers (bowtie2 -k 20 -p 16 -X2000 --local --mm), for each read up to 20 multimapped areas is reported. 
+```{bash}
+source activate encode-atac-seq-pipeline
+
+BIGWIG_FILES="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/bamCoverage_bigwigs/atacHAK001_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/bamCoverage_bigwigs/atacHAK007_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/bamCoverage_bigwigs/atacHAK023_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/bamCoverage_bigwigs/atacHAK002_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/bamCoverage_bigwigs/atacHAK024_scaleFactornorm.bw
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/bamCoverage_bigwigs/atacHAK025_scaleFactornorm.bw"
+samplenames="Interphase_1 Interphase_2 Interphase_3 Mitotic_1 Mitotic_2 Mitotic_3"
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files
+GENOMIC_REGIONS=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/GSE153058_xla_v10.2_cen.bed
+NAME="IvsM_ATAC_over_Centromere_5kb_bowtie_k20_multimapped"
+computeMatrix scale-regions \
+	-S $BIGWIG_FILES \
+	-R $GENOMIC_REGIONS \
+	-b 5000 -a 5000 -bs=10 -p=max \
+	--regionBodyLength 5000 \
+	--startLabel "start" \
+	--endLabel "end" \
+ 	-out $NAME\_matrix.gz \
+ 	--numberOfProcessors "max" \
+ 	--skipZeros \
+        --outFileSortedRegions $NAME\_sorted_regions.bed 
+
+plotProfile -m $NAME\_matrix.gz \
+    -out /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files/plotProfile/$NAME\_profile.pdf \
+    --perGroup \
+    --colors "#BADEFAFF" "#90CAF8FF" "#64B4F6FF" "#9FA7D9FF" "#5B6BBFFF" "#19227EFF" \
+    --samplesLabel $samplenames \
+	--startLabel "start" \
+	--endLabel "end" \
+    --plotTitle "$NAME" 
+
+plotHeatmap -m $NAME\_matrix.gz \
+    -out  /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/deepTools_files/plotHeatmap/$NAME\_heatmap.pdf \
+    --colorMap inferno \
+    --samplesLabel $samplenames \
+	--startLabel "start" \
+	--endLabel "end" \
+    --plotTitle "$NAME" 
 ```
 
 
