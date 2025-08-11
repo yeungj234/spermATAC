@@ -1,0 +1,15 @@
+Status	/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_4_bam_markduplicates/atacHAK044_43AMut/atacHAK044_43AMut_markdups_final.bam
+Assigned	1182909671
+Unassigned_Unmapped	0
+Unassigned_Read_Type	0
+Unassigned_Singleton	0
+Unassigned_MappingQuality	0
+Unassigned_Chimera	0
+Unassigned_FragmentLength	0
+Unassigned_Duplicate	0
+Unassigned_MultiMapping	0
+Unassigned_Secondary	0
+Unassigned_NonSplit	0
+Unassigned_NoFeatures	0
+Unassigned_Overlapping_Length	0
+Unassigned_Ambiguity	42309204

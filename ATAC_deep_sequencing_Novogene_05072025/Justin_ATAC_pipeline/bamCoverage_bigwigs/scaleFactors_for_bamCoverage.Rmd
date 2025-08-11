@@ -1,0 +1,66 @@
+---
+title: "scaleFactors_for_bamCoverage"
+author: "Joanna Yeung"
+date: "2025-08-04"
+output: html_document
+---
+# generate gff file containg 500bp tiles to count under across genome
+```{r}
+# counts across tiled genome
+xenLae2 <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1_genomic.fna.fai", sep="\t")
+
+# make GRanges object for whole genome
+xenLae2_GR <- GRanges(seqnames=xenLae2$V1, ranges=IRanges(start=1, end=xenLae2$V2))
+# use tile function to create bins of 500bp for the Xenopus genome
+xenLae2_tiles <- tile(xenLae2_GR, width=500)
+xenLae2_tiles <- unlist(xenLae2_tiles)
+xenLae2_tiles <- xenLae2_tiles[grepl("Chr", seqnames(xenLae2_tiles))] # remove scaffold and mitochondrial chromosomes from being counted as tiles since we do not count them. 
+
+export.gff(xenLae2_tiles, con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/XenLa10.1_500bptiles.gff")
+```
+
+# count fragments under tiles. 
+```{bash}
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks
+# convert from gff to gtf extension (remove first 3 lines that are not coordinates)
+#$3 → set third column to read as peak for featureCounts script. 
+#$1 → chromosome (e.g., Chr1L)
+#$4 and $5 → start and end positions
+#$9="peak_id \"" $1 ":" $4 "-" $5 "\";" → sets the 9th column to desired format for featureCounts script
+#OFS="\t" keeps fields tab-separated
+awk 'BEGIN{OFS="\t"} {$3="peak"; $9="peak_id \"" $1 ":" $4 "-" $5 "\""; print}' XenLa10.1_500bptiles.gff |sed '1,3d'> XenLa10.1_500bptiles.gtf
+
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts
+sbatch -p hpc_l40s_b --array=1-9 --export=peakset_name="XenLa10.1_500bptiles",inputfiles=allreads_inputfiles.txt,peaks=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/XenLa10.1_500bptiles.gtf,outdir=Counts_in_500bp_tiles,samplelist=samplenames.txt atac_7_featureCounts.slurm
+```
+
+# import fragment counts under peaks 
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts/Counts_in_500bp_tiles/")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_XenLa10.1_500bptiles_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# Merge counts from Hira mutant data with IvsM counts. 
+allCounts <- cbind(IvsM_Counts, MutCounts)
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(4:6, 3)))
+
+
+# make DESeq object from frag_MutCounts matrix
+dds_tiles <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+dds_tiles <- estimateSizeFactors(dds_tiles)
+sizeFactors <- 1/colData(dds_tiles)$sizeFactor
+sizeFactors <- sizeFactors[c(1,4,7,2,5,8,3,6,9)]
+writeLines(as.character(sizeFactors), con="/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/bamCoverage_bigwigs/scaleFactor.txt")
+```
+
