@@ -10,7 +10,7 @@
 
 # example of sbatch command to run this script:
 # sbatch -p hpc_l40s_b --array=1-9 --export=peakset_name="IvsM_peakset",inputfiles=allreads_inputfiles.txt,peaks=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_6_IDR_tagalign/nonredundant_masterpeaks_IDR.900000.0.1.gtf,outdir=$(pwd),samplelist=samplenames.txt atac_7_featureCounts.slurm
-
+# sbatch -p hpc_l40s_b --array=1-9 --export=peakset_name="HIRAmut_peakset",inputfiles=allreads_inputfiles.txt,peaks=/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_6_IDR_tagalign/nonredundant_masterpeaks_IDR.0.1.gtf,outdir=$(pwd),samplelist=samplenames.txt atac_7_featureCounts.slurm
 INPUT=$(head -n $SLURM_ARRAY_TASK_ID $inputfiles | tail -n 1)
 NAME=$(head -n $SLURM_ARRAY_TASK_ID $samplelist | tail -n 1)
 # Define and create sample output directory

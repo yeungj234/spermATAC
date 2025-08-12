@@ -1,0 +1,527 @@
+---
+title: "HIRAmutants_DESeq_8102025"
+author: "Joanna Yeung"
+date: "2025-08-11"
+output: html_document
+---
+
+
+```{r, warning=F}
+library(GenomicFeatures)
+library(GenomicRanges)
+library(rtracklayer)
+library(chromVAR)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(ChIPseeker)
+library(pheatmap)
+library(readr)
+library(ggrepel)
+library(chromPlot)
+library(rtracklayer)
+```
+
+```{r}
+hm_cols <- list(Condition=c("Interphase"="#B7E4F9FF", "Mitosis"="#24325FFF"),
+                Biorep=c("4"="#D53E4F", "5"="#FC8D59", "6"="#3288BD"), 
+                Genotype=c("WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D"))
+#"1"="#D53E4F", "2"= "#FC8D59", "3"="#AB6A90"
+# make TxDb object from Xenopus Laevis gtf file
+TxDb.Xeno <- txdbmaker::makeTxDbFromGFF("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+
+gene_annoXeno <- import("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+```
+
+# find peaks that overlap between different HIRA genotypes (prior to IDR filtering; just all peaks callecd by MACS2)
+```{r}
+setwd("/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_6_IDR_tagalign")
+condition_names <- readLines("condition_names.txt")
+peaks <- GRangesList()
+for(i in 1:length(condition_names)){
+  peaks[[i]] <- import(paste0(condition_names[i], "/", condition_names[i], "_pool.tn5_peaks.narrowPeak"))
+  peaks[[i]]$name <- paste0(condition_names[i], "_", seqnames(peaks[[i]]), ":", start(peaks[[i]]), "-", end(peaks[[i]]))
+}
+names(peaks) <- condition_names
+
+masterpeaks <- reduce(unlist(peaks))
+masterpeaks$name <- paste0(seqnames(masterpeaks), ":", start(masterpeaks), "-", end(masterpeaks))
+
+
+# write function to create venn diagrams that are proportional to size of each category. 
+create_proportional_venn <- function(sets, set_labels, colors = c("#E0ADCD", "#B3C543", "#A0ADCD")) {
+  library(eulerr)
+  # Check if sets and labels are provided correctly
+  if (length(sets) != length(set_labels)) {
+    stop("The number of sets and set_labels must be the same.")
+  }
+  
+  # Prepare the data for eulerr
+  venn_data <- setNames(sets, set_labels)
+  
+  # Use eulerr to calculate the Venn diagram
+  venn_fit <- euler(venn_data)
+  
+  # Plot the Venn diagram
+  plot(venn_fit, 
+       fills = colors, 
+       labels = list(cex = 1, fontfamily = "Helvetica"),
+       quantities = list(cex = 1),
+       edges = list(lwd = 2))
+}
+
+a <-c(1,1,2,3,2,3)
+b <-c(2,3,1,1,3,2)
+peaks_df <- list()
+for(i in 1:length(a)){
+  peaks_df[[i]] <- as.data.frame(peaks[[a[i]]][peaks[[a[i]]] %over% peaks[[b[i]]] ])
+  peaks_df[[i]]$Comparison <- paste0(condition_names[a[i]], "-", condition_names[b[i]])
+  peaks_df[[i]]$Type <- "Overlapping Peaks"
+}
+for(i in 1:length(a)){
+  peaks_df[[i+length(a)]] <- as.data.frame(peaks[[a[i]]][!peaks[[a[i]]] %over% peaks[[b[i]]] ])
+  peaks_df[[i+length(a)]]$Comparison <- paste0(condition_names[a[i]], "-", condition_names[b[i]])
+  peaks_df[[i+length(a)]]$Type <- "Non-overlapping Peaks"
+}
+
+peaks_df <- do.call(rbind, peaks_df)
+```
+
+```{r}
+pdf_dir <- "/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/Figures"
+
+pdf(paste0(pdf_dir, "/OverlappingPeaksStats.from.pool.tn5_peaks.narrowPeak.pdf"), height=12, width=12)
+# number of peaks overlapping across genotypes
+create_proportional_venn(sets=list(masterpeaks[masterpeaks %over% peaks$Mitosis_WT]$name, masterpeaks[masterpeaks %over% peaks$Mitosis_43AMut]$name, masterpeaks[masterpeaks %over% peaks$Mitosis_HIDMut]$name), 
+                         set_labels = condition_names, 
+                         colors = c("WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D")
+)
+
+# significance of peaks overlapping vs non-overlapping
+ggplot(peaks_df, aes(x = qValue, fill = Comparison)) +
+  geom_histogram(binwidth=10) +
+  scale_x_continuous(limits=c(0,1000))+
+  facet_wrap(Comparison~Type, scales="free", nrow=6, ncol=2)+theme_classic()+
+  theme(axis.text.x = element_text(angle=45, size=8), axis.text.y = element_text(size=10), text = element_text(size = 12))
+
+ggplot(peaks_df, aes(x = score, fill = Comparison)) +
+  geom_histogram(binwidth=50) +
+  scale_x_continuous(limits=c(0,10000))+
+  facet_wrap(Comparison~Type, scales="free", nrow=6, ncol=2)+theme_classic()+
+  theme(axis.text.x = element_text(angle=45, size=8), axis.text.y = element_text(size=10), text = element_text(size = 12))
+dev.off()
+```
+
+# find peaks that overlap between different HIRA genotypes (prior to IDR filtering; just all peaks callecd by MACS2)
+```{r}
+setwd("/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_6_IDR_tagalign")
+condition_names <- readLines("condition_names.txt")
+peaks <- GRangesList()
+for(i in 1:length(condition_names)){
+  peaks[[i]] <- import(paste0(condition_names[i], "/", condition_names[i], "_pool.tn5_peaks.narrowPeak"))
+  peaks[[i]]$name <- paste0(condition_names[i], "_", seqnames(peaks[[i]]), ":", start(peaks[[i]]), "-", end(peaks[[i]]))
+}
+names(peaks) <- condition_names
+
+masterpeaks <- reduce(unlist(peaks))
+masterpeaks$name <- paste0(seqnames(masterpeaks), ":", start(masterpeaks), "-", end(masterpeaks))
+
+
+# write function to create venn diagrams that are proportional to size of each category. 
+create_proportional_venn <- function(sets, set_labels, colors = c("#E0ADCD", "#B3C543", "#A0ADCD")) {
+  library(eulerr)
+  # Check if sets and labels are provided correctly
+  if (length(sets) != length(set_labels)) {
+    stop("The number of sets and set_labels must be the same.")
+  }
+  
+  # Prepare the data for eulerr
+  venn_data <- setNames(sets, set_labels)
+  
+  # Use eulerr to calculate the Venn diagram
+  venn_fit <- euler(venn_data)
+  
+  # Plot the Venn diagram
+  plot(venn_fit, 
+       fills = colors, 
+       labels = list(cex = 1, fontfamily = "Helvetica"),
+       quantities = list(cex = 1),
+       edges = list(lwd = 2))
+}
+
+a <-c(1,1,2,3,2,3)
+b <-c(2,3,1,1,3,2)
+peaks_df <- list()
+for(i in 1:length(a)){
+  peaks_df[[i]] <- as.data.frame(peaks[[a[i]]][peaks[[a[i]]] %over% peaks[[b[i]]] ])
+  peaks_df[[i]]$Comparison <- paste0(condition_names[a[i]], "-", condition_names[b[i]])
+  peaks_df[[i]]$Type <- "Overlapping Peaks"
+}
+for(i in 1:length(a)){
+  peaks_df[[i+length(a)]] <- as.data.frame(peaks[[a[i]]][!peaks[[a[i]]] %over% peaks[[b[i]]] ])
+  peaks_df[[i+length(a)]]$Comparison <- paste0(condition_names[a[i]], "-", condition_names[b[i]])
+  peaks_df[[i+length(a)]]$Type <- "Non-overlapping Peaks"
+}
+
+peaks_df <- do.call(rbind, peaks_df)
+```
+
+# find peaks that overlap between different HIRA genotypes (after IDR filtering; higher confidence peaks)
+```{r}
+setwd("/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_6_IDR_tagalign")
+condition_names <- readLines("condition_names.txt")
+peaks <- GRangesList()
+for(i in 1:length(condition_names)){
+  peaks[[i]] <- import(paste0(condition_names[i], "/", condition_names[i], "_REP1_VS_REP2_VS_REP3.IDR.0.1.narrowPeak.gz"))
+  peaks[[i]]$name <- paste0(condition_names[i], "_", seqnames(peaks[[i]]), ":", start(peaks[[i]]), "-", end(peaks[[i]]))
+}
+names(peaks) <- condition_names
+
+masterpeaks <- reduce(unlist(peaks))
+masterpeaks$name <- paste0(seqnames(masterpeaks), ":", start(masterpeaks), "-", end(masterpeaks))
+
+a <-c(1,1,2,3,2,3)
+b <-c(2,3,1,1,3,2)
+peaks_df <- list()
+for(i in 1:length(a)){
+  peaks_df[[i]] <- as.data.frame(peaks[[a[i]]][peaks[[a[i]]] %over% peaks[[b[i]]] ])
+  peaks_df[[i]]$Comparison <- paste0(condition_names[a[i]], "-", condition_names[b[i]])
+  peaks_df[[i]]$Type <- "Overlapping Peaks"
+}
+for(i in 1:length(a)){
+  peaks_df[[i+length(a)]] <- as.data.frame(peaks[[a[i]]][!peaks[[a[i]]] %over% peaks[[b[i]]] ])
+  peaks_df[[i+length(a)]]$Comparison <- paste0(condition_names[a[i]], "-", condition_names[b[i]])
+  peaks_df[[i+length(a)]]$Type <- "Non-overlapping Peaks"
+}
+
+peaks_df <- do.call(rbind, peaks_df)
+```
+```{r}
+pdf_dir <- "/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/Figures"
+
+pdf(paste0(pdf_dir, "/OverlappingPeaksStats.from.REP1_VS_REP2_VS_REP3.IDR.0.1.narrowPeak.pdf"), height=12, width=12)
+# number of peaks overlapping across genotypes
+create_proportional_venn(sets=list(masterpeaks[masterpeaks %over% peaks$Mitosis_WT]$name, masterpeaks[masterpeaks %over% peaks$Mitosis_43AMut]$name, masterpeaks[masterpeaks %over% peaks$Mitosis_HIDMut]$name), 
+                         set_labels = condition_names, 
+                         colors = c("WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D")
+)
+
+# significance of peaks overlapping vs non-overlapping
+ggplot(peaks_df, aes(x = qValue, fill = Comparison)) +
+  geom_histogram(binwidth=10) +
+  scale_x_continuous(limits=c(0,1000))+
+  facet_wrap(Comparison~Type, scales="free", nrow=6, ncol=2)+theme_classic()+
+  theme(axis.text.x = element_text(angle=45, size=8), axis.text.y = element_text(size=10), text = element_text(size = 12))
+
+ggplot(peaks_df, aes(x = score, fill = Comparison)) +
+  geom_histogram(binwidth=50) +
+  scale_x_continuous(limits=c(0,10000))+
+  facet_wrap(Comparison~Type, scales="free", nrow=6, ncol=2)+theme_classic()+
+  theme(axis.text.x = element_text(angle=45, size=8), axis.text.y = element_text(size=10), text = element_text(size = 12))
+dev.off()
+```
+
+# generate non-redundant masterpeak set only from HIRA mutant batch samples
+```{bash}
+cd /lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_6_IDR_tagalign
+sbatch --export=outdir=$(pwd),pval=0.1 bedtools_merge.slurm
+```
+
+# compare HIRA mutant peaksets with IvsM peaksets (after IDR filtering)
+```{r}
+setwd("/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_6_IDR_tagalign")
+condition_names <- readLines("condition_names.txt")
+IvsMpeaks <- GRangesList()
+for(i in 1:length(condition_names)){
+  IvsMpeaks[[i]] <- import(paste0(condition_names[i], "/", condition_names[i], "_REP1_VS_REP2_VS_REP3.IDR.900000.0.1.narrowPeak.gz"))
+  IvsMpeaks[[i]]$name <- paste0(condition_names[i], "_", seqnames(IvsMpeaks[[i]]), ":", start(IvsMpeaks[[i]]), "-", end(IvsMpeaks[[i]]))
+}
+names(IvsMpeaks) <- condition_names
+rm(condition_names)
+
+# reduce to non-redundant master peak set across HIRA mutant & IvsM ATAC-seq peak sets. 
+acrossBatchmasterPeaks <- reduce(c(unlist(IvsMpeaks), masterpeaks))
+acrossBatchmasterPeaks$name <- paste0(seqnames(acrossBatchmasterPeaks), ":", start(acrossBatchmasterPeaks), "-", end(acrossBatchmasterPeaks))
+
+# import Centromeric regions
+CENPA_OwenSmith_regions <- import.bed("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/GSE153058_xla_v10.2_cen.bed")
+```
+
+```{r}
+pdf(paste0(pdf_dir, "/IvsMpeaks.vs.HIRAmutMitoticpeaks.VennDiagram.pdf"), width=12, height=12)
+create_proportional_venn(sets=
+list(acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% IvsMpeaks$Interphase]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% IvsMpeaks$Mitosis]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_WT]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_43AMut]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_HIDMut]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% CENPA_OwenSmith_regions]$name), 
+                         set_labels = c("Interphase", "Mitosis", "WT", "43AMut", "HIDMut", "Centromeres"), 
+                         colors = c("Interphase"="#B7E4F9FF", "Mitosis"="#24325FFF", "WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D", "gold")
+)
+
+create_proportional_venn(sets=
+list(acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% IvsMpeaks$Interphase]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% IvsMpeaks$Mitosis]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_WT]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_43AMut]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_HIDMut]$name), 
+                         set_labels = c("Interphase", "Mitosis", "WT", "43AMut", "HIDMut"), 
+                         colors = c("Interphase"="#B7E4F9FF", "Mitosis"="#24325FFF", "WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D")
+)
+
+create_proportional_venn(sets=
+list(acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% IvsMpeaks$Interphase]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% IvsMpeaks$Mitosis]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% CENPA_OwenSmith_regions]$name), 
+                         set_labels = c("Interphase", "Mitosis", "Centromeres"), 
+                         colors = c("Interphase"="#B7E4F9FF", "Mitosis"="#24325FFF", "gold")
+)
+
+create_proportional_venn(sets=
+list( 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_WT]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_43AMut]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_HIDMut]$name), 
+                         set_labels = c("WT", "43AMut", "HIDMut"), 
+                         colors = c("WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D")
+)
+
+create_proportional_venn(sets=
+list( 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_WT]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_43AMut]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% CENPA_OwenSmith_regions]$name), 
+                         set_labels = c("WT", "43AMut","Centromeres"), 
+                         colors = c("WT"="#1B9E77","43AMut"="#E7298A", "gold")
+)
+
+create_proportional_venn(sets=
+list( 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_WT]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_HIDMut]$name,
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% CENPA_OwenSmith_regions]$name), 
+                         set_labels = c("WT", "HIDMut","Centromeres"), 
+                         colors = c("WT"="#1B9E77","HIDMut"="#A6761D", "gold")
+)
+
+create_proportional_venn(sets=
+list( 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_43AMut]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% peaks$Mitosis_HIDMut]$name, 
+acrossBatchmasterPeaks[acrossBatchmasterPeaks %over% CENPA_OwenSmith_regions]$name), 
+                         set_labels = c("43AMut", "HIDMut", "Centromeres"), 
+                         colors = c( "43AMut"="#E7298A", "HIDMut"="#A6761D", "gold")
+)
+dev.off()
+```
+
+# featureCounts under peaks
+```{bash}
+/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts
+sbatch -p hpc_l40s_b --array=1-9 --export=peakset_name="HIRAmut_peakset",inputfiles=allreads_inputfiles.txt,peaks=/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_6_IDR_tagalign/nonredundant_masterpeaks_IDR.0.1.gtf,outdir=$(pwd),samplelist=samplenames.txt atac_7_featureCounts.slurm
+```
+
+
+# featureCounts, PCA & Correlation including HIRA Mutant counts under IvsM masterpeaks. 
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(4:6, 3)))
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+# get pearson correlation coefficients for pairwise comparisons between samples
+sampleDists <- dist(t(assay(rlog_HIRA.dds ))) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDistMatrix <- as.matrix(sampleDists)
+row.names(sampleDistMatrix) <- Mut_metaData$sample
+# plot sample distance matrix
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+```
+
+
+### plot PCA:
+```{r}
+runPCA <- function(mat, Mut_metaData, ntop = nrow(mat)) {
+  # Calculate row variances
+  rv <- rowVars(mat)
+  
+  # Select top variable features (ntop capped by number of rows)
+  select <- order(rv, decreasing = TRUE)[seq_len(min(ntop, length(rv)))]
+  
+  # Subset and transpose for PCA (samples x genes)
+  mat_forPCA <- t(mat[select, ])
+  
+  # Run PCA (scale. = TRUE is usually recommended)
+  pca_result <- prcomp(mat_forPCA, scale. = TRUE)
+  
+  # Calculate variance explained (in percentages, rounded)
+  VarianceExplained <- round((pca_result$sdev^2 / sum(pca_result$sdev^2)) * 100)
+  
+  # Combine PCA coordinates with metadata
+  pca_result_df <- cbind(as.data.frame(pca_result$x), Mut_metaData)
+  
+  # Return as list for convenience
+  return(list(pca_result = pca_result,
+              pca_df = pca_result_df,
+              variance_explained = VarianceExplained))
+}
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+# PC1 vs PC2
+ggplot(data=pca_result_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", VarianceExplained[1], "% Variance Explained"))+ylab(paste0("PC2: ", VarianceExplained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)
+```
+
+# remove batch effect then visualize with PCA
+```{r}
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+```
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+```{r}
+pdf(paste0(pdf_dir, "/HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"))
+# uncorrected counts
+ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks")
+
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks")
+
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks")
+
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+dev.off()
+```
+# plot sample correlation:
+```{r}
+pdf(paste0(pdf_dir, "/HIRAMut.batchCorrected.vs.Uncorrected.sampleDistMatrix.pdf"))
+pheatmap(sampleDistMatrix, colorRampPalette(rev(c("white", "#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = Mut_metaData[ ,-1], annotation_colors = hm_cols, display_numbers = TRUE)
+
+pheatmap(sampleDistMatrix, colorRampPalette(rev(c("white", "#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = Mut_metaData[ ,-1], annotation_colors = hm_cols, cluster_cols = F, cluster_rows = F, display_numbers = TRUE)
+
+# get pearson correlation coefficients for pairwise comparisons between samples
+sampleDists <- dist(t(mat_removeBatch)) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDistMatrix_rmBatch <- as.matrix(sampleDists)
+row.names(sampleDistMatrix_rmBatch) <- Mut_metaData$sample
+# plot sample distance matrix for batch corrected counts
+pheatmap(sampleDistMatrix_rmBatch, colorRampPalette(rev(c("white","white","#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = Mut_metaData[ ,-1], annotation_colors = hm_cols, display_numbers = TRUE)
+pheatmap(sampleDistMatrix_rmBatch, colorRampPalette(rev(c("white","white","#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = Mut_metaData[ ,-1], annotation_colors = hm_cols, cluster_cols = F, cluster_rows = F, display_numbers = TRUE)
+dev.off()
+```
+
+# perform DESeq
+```{r}
+HIRA.dds <- DESeq(HIRA.dds)
+WTvs43AMut.res <- results(HIRA.dds, contrast=c("Genotype", "WT", "43AMut"))
+WTvsHIDMut.res <- results(HIRA.dds, contrast=c("Genotype", "WT", "HIDMut"))
+HIDMutvs43A.res <- results(HIRA.dds, contrast=c("Genotype", "HIDMut" , "43AMut"))
+
+# get significant results
+sigResWald <- list("WTvs43AMut"=WTvs43AMut.res[WTvs43AMut.res$padj < 0.05, ], "WTvsHIDMut"=WTvsHIDMut.res[WTvsHIDMut.res$padj < 0.05, ], "HIDMutvs43A"=HIDMutvs43A.res[HIDMutvs43A.res$padj < 0.05, ])
+sigResWald <- lapply(sigResWald, function(x){x[order(x$log2FoldChange, decreasing=T), ]})
+# get peak_ids of significant peaks. 
+sigPeak.ID.Wald <- sapply(sigResWald, function(x){row.names(x)})
+sigPeak.ID.Wald <- unique(unlist(sigPeak.ID.Wald))
+
+# write DESeq results
+for(i in 1:length(sigResWald)){
+write.csv(as.data.frame(sigResWald[[i]]), file=paste0(pdf_dir, "/", names(sigResWald)[i], "_DESeqWaldResults.csv"))}
+
+# plot heatmap of scaled rlog counts under sig peaks. 
+sigMat_rmBatch <- mat_removeBatch[row.names(mat_removeBatch) %in% sigPeak.ID.Wald, ]
+
+pdf(paste0(pdf_dir, "/HIRA.Mut.sigMat_rmBatch.pdf"))
+pheatmap(sigMat_rmBatch, scale="row", cluster_cols = F, cluster_rows = T, annotation_col = Mut_metaData[ ,-1], annotation_colors = hm_cols, show_rownames = F, main=paste0("Significant Peaks:", nrow(sigMat_rmBatch)))
+dev.off()
+
+
+NormCountsMat <- counts(HIRA.dds, normalized=T)
+sigNormCounts <- NormCountsMat[row.names(NormCountsMat) %in% sigPeak.ID.Wald, ]
+# convert matrix of normalized counts of sig peaks into a dataframe with metaData information for ggplot to accept
+sigNormCounts_df <- list()
+for(i in 1:nrow(sigNormCounts)){
+sigNormCounts_df[[i]] <- data.frame(Counts=sigNormCounts[i, ], sample=names((sigNormCounts[i, ])), Peak_ID= row.names(sigNormCounts)[i], Mut_metaData)
+}
+sigNormCounts_df <- do.call(rbind, sigNormCounts_df) # combine list into 1 giant dataframe
+
+# plot normalized counts under sig peaks
+gg_sigNormCounts <- list()
+for(i in 1:length(sigPeak.ID.Wald)){
+gg_sigNormCounts[[i]] <- ggplot(sigNormCounts_df[sigNormCounts_df$Peak_ID %in% sigPeak.ID.Wald[i], ], aes(x=Genotype, y=Counts, color=Genotype, shape=Biorep))+geom_point(size=3)+scale_color_manual(values=hm_cols$Genotype)+theme_minimal()+ylab("Normalized Counts")+xlab("Genotype")+ggtitle(sigPeak.ID.Wald[i])+theme_classic()+theme(
+      axis.text.x = element_text(size = 8),
+      axis.text.y = element_text(size = 8),
+      axis.title.y = element_text(size = 10), 
+      axis.title.x = element_text(size = 10)
+    )
+}
+
+pdf(paste0(pdf_dir, "/HIRAMut.NormCounts.in.sigPeaks.Wald.pdf"))
+gg_sigNormCounts
+dev.off()
+```
+```
+
+# do significant peaks overlap with centromeres?
+```{r}
+# import masterpeaks
+masterpeaks <- import("/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_6_IDR_tagalign/nonredundant_masterpeaks_IDR.0.1.gtf")
+
+create_proportional_venn(sets=list(masterpeaks[masterpeaks$peak_id %in% row.names(sigResWald$WTvs43AMut)]$peak_id, 
+                      masterpeaks[masterpeaks$peak_id %in% row.names(sigResWald$WTvsHIDMut)]$peak_id, 
+                      masterpeaks[masterpeaks$peak_id %in% row.names(sigResWald$HIDMutvs43A)]$peak_id, 
+                      masterpeaks[masterpeaks %over% CENPA_OwenSmith_regions]$peak_id), 
+                         set_labels = c(names(sigResWald), "Centromeres"), 
+                         colors = c("lightpink", "lightgrey", "olivedrab", "gold")
+)
+```
+
+
