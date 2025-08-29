@@ -148,6 +148,8 @@ anno.IvsM.sigPeaks_df$Centromere <- ifelse(row.names(anno.IvsM.sigPeaks_df) %in%
 
 pdf(paste0(pdf_dir, "/rlog_IvsM.sigMat.pdf"))
 pheatmap(rlog_IvsM.sigMat, scale="row", cluster_cols = F, cluster_rows = T, annotation_col = IvsM.metaData[ ,-c(1,3)], annotation_row = anno.IvsM.sigPeaks_df, annotation_colors = hm_cols, show_rownames = F, main=paste0("Significant Peaks:", nrow(rlog_IvsM.sigMat)))
+
+pheatmap(rlog_IvsM.sigMat, cluster_cols = F, cluster_rows = T, annotation_col = IvsM.metaData[ ,-c(1,3)], annotation_row = anno.IvsM.sigPeaks_df, annotation_colors = hm_cols, show_rownames = F, breaks = seq(100, 10000, length.out = 100), colorRampPalette(brewer.pal(n = 7, name ="Reds"))(100), main=paste0("Significant Peaks:", nrow(rlog_IvsM.sigMat)))
 dev.off()
 
 # Cluster 2= Interphase Up peaks
