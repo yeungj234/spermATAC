@@ -1,0 +1,350 @@
+---
+title: "Hide_IvsM_multimapped_FLD_PCA"
+author: "Joanna Yeung"
+date: "2025-07-28"
+output: html_document
+---
+
+```{r, warning=F}
+library(GenomicFeatures)
+library(GenomicRanges)
+library(rtracklayer)
+library(chromVAR)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(ChIPseeker)
+library(pheatmap)
+library(readr)
+library(ggrepel)
+library(chromPlot)
+library(rtracklayer)
+```
+
+```{r}
+hm_cols <- list(Condition=c("Interphase"="#B7E4F9FF", "Mitosis"="#24325FFF"),
+                Biorep=c("1"="#D53E4F", "2"= "#FC8D59", "3"="#FC8D59", "4"="#ABDDA4", "5"="#66C2A5", "6"="#3288BD"), 
+                Genotype=c("WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D"))
+# make TxDb object from Xenopus Laevis gtf file
+TxDb.Xeno <- txdbmaker::makeTxDbFromGFF("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+
+gene_annoXeno <- import("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+```
+
+# Fragment Length distribution all reads
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_5_bam_FLD")
+samplenames <- read_lines("samplenames.txt")
+samplenames <- samplenames[c(1,3,4,2,5,6)]
+metaData <- data.frame(sample=samplenames, Condition=c("Interphase", "Interphase", "Interphase", "Mitosis",  "Mitosis",  "Mitosis"), Genotype=rep("WT", length(samplenames)), Biorep=c("1", "2", "3", "1", "2", "3"))
+
+samplesList <- list()
+for(i in 1:length(samplenames)){
+  samplesList[[i]] <- read.table(paste0(samplenames[i],"_allreads_insertdata.txt"), skip=10, header=T) # read in hist_data_withoutdups.log file for each sample
+}
+names(samplesList) <- samplenames
+
+# want each sample to have the same value of insert sizes from 1-1000bp (we don't want missing insert sizes because then it is hard to plot on ggplot if different samples have different axes. We will fill in the insert sizes with no reads as NA. 
+for(i in 1:length(samplesList)){
+  hist <- data.frame(insert_size=1:1000) 
+  samplesList[[i]] <- merge(hist, samplesList[[i]], by="insert_size", all=T)
+  samplesList[[i]][is.na(samplesList[[i]]$All_Reads.fr_count), ]$All_Reads.fr_count <- 0  # convert NA values to 0
+} 
+
+final_hist <- do.call(rbind, samplesList) # rbind each samples' histogram dataframe into 1 final dataframe. 
+final_hist$sample <- unlist(lapply(names(samplesList), rep, 1000)) # specify samples column so that we can color ggplot by sample.
+final_hist$sample <- factor(final_hist$sample, levels=names(samplesList))
+final_hist <- merge(final_hist, metaData, by="sample")
+
+logFLD <- ggplot(final_hist, aes(x=insert_size, y=log(All_Reads.fr_count), colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+  ylab("log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+FLD <- ggplot(final_hist, aes(x=insert_size, y=All_Reads.fr_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF","#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=40)+
+  ylab("Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+percent_hist <- samplesList
+
+percent_count <-lapply(percent_hist, function(percent_hist){ percent_hist$All_Reads.fr_count/sum(na.omit(percent_hist$All_Reads.fr_count))})
+
+for(i in 1:length(percent_hist)){
+  percent_hist[[i]]$percent_count <- percent_count[[i]]
+}
+percent_hist <- do.call(rbind, percent_hist) # rbind each samples' histogram dataframe into 1 percent dataframe. 
+percent_hist$sample <- unlist(lapply(names(samplesList), rep, 1000)) # specify samples column so that we can color ggplot by sample.
+percent_hist$sample <- factor(percent_hist$sample, levels=names(samplesList))
+percent_hist <- merge(percent_hist, metaData, by="sample")
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures_multimap/all_reads_percent_hist_FLD.pdf")
+ggplot(percent_hist, aes(x=insert_size, y=log(percent_count), colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+    scale_x_continuous(n.breaks=10)+
+  ylab("Normalized log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+ggplot(percent_hist, aes(x=insert_size, y=percent_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=10)+
+  ylab("Normalized Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+ggplot(percent_hist, aes(x=insert_size, y=percent_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+  facet_wrap(~Condition)+
+  scale_x_continuous(n.breaks=10)+
+   theme_bw(base_size = 10) + 
+  ylab("Normalized Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+dev.off()
+```
+
+# Fragment Length distribution: centromeric reads
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_5_bam_FLD")
+
+samplesList <- list()
+for(i in 1:length(samplenames)){
+  samplesList[[i]] <- read.table(paste0(samplenames[i],"_centromeric_insertdata.txt"), skip=10, header=T) # read in hist_data_withoutdups.log file for each sample
+}
+names(samplesList) <- samplenames
+
+# want each sample to have the same value of insert sizes from 1-1000bp (we don't want missing insert sizes because then it is hard to plot on ggplot if different samples have different axes. We will fill in the insert sizes with no reads as NA. 
+for(i in 1:length(samplesList)){
+  hist <- data.frame(insert_size=1:1000) 
+  samplesList[[i]] <- merge(hist, samplesList[[i]], by="insert_size", all=T)
+  samplesList[[i]][is.na(samplesList[[i]]$All_Reads.fr_count), ]$All_Reads.fr_count <- 0  # convert NA values to 0
+} 
+
+final_hist <- do.call(rbind, samplesList) # rbind each samples' histogram dataframe into 1 final dataframe. 
+final_hist$sample <- unlist(lapply(names(samplesList), rep, 1000)) # specify samples column so that we can color ggplot by sample.
+final_hist$sample <- factor(final_hist$sample, levels=names(samplesList))
+final_hist <- merge(final_hist, metaData, by="sample")
+
+logFLD <- ggplot(final_hist, aes(x=insert_size, y=log(All_Reads.fr_count), colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+  ylab("log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+FLD <- ggplot(final_hist, aes(x=insert_size, y=All_Reads.fr_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF","#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=40)+
+  ylab("Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+percent_hist <- samplesList
+
+percent_count <-lapply(percent_hist, function(percent_hist){ percent_hist$All_Reads.fr_count/sum(na.omit(percent_hist$All_Reads.fr_count))})
+
+for(i in 1:length(percent_hist)){
+  percent_hist[[i]]$percent_count <- percent_count[[i]]
+}
+percent_hist <- do.call(rbind, percent_hist) # rbind each samples' histogram dataframe into 1 percent dataframe. 
+percent_hist$sample <- unlist(lapply(names(samplesList), rep, 1000)) # specify samples column so that we can color ggplot by sample.
+percent_hist$sample <- factor(percent_hist$sample, levels=names(samplesList))
+percent_hist <- merge(percent_hist, metaData, by="sample")
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures_multimap/centromeric_percent_hist_FLD.pdf")
+ggplot(percent_hist, aes(x=insert_size, y=log(percent_count), colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+    scale_x_continuous(n.breaks=10)+
+  ylab("Normalized log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+ggplot(percent_hist, aes(x=insert_size, y=percent_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=10)+
+  ylab("Normalized Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+ggplot(percent_hist, aes(x=insert_size, y=percent_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+  facet_wrap(~Condition)+
+  scale_x_continuous(n.breaks=10)+
+   theme_bw(base_size = 10) + 
+  ylab("Normalized Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+dev.off()
+```
+
+# Fragment Length distribution: noncentromeric reads
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_5_bam_FLD")
+
+samplesList <- list()
+for(i in 1:length(samplenames)){
+  samplesList[[i]] <- read.table(paste0(samplenames[i],"_noncentromeric_insertdata.txt"), skip=10, header=T) # read in hist_data_withoutdups.log file for each sample
+}
+names(samplesList) <- samplenames
+
+# want each sample to have the same value of insert sizes from 1-1000bp (we don't want missing insert sizes because then it is hard to plot on ggplot if different samples have different axes. We will fill in the insert sizes with no reads as NA. 
+for(i in 1:length(samplesList)){
+  hist <- data.frame(insert_size=1:1000) 
+  samplesList[[i]] <- merge(hist, samplesList[[i]], by="insert_size", all=T)
+  samplesList[[i]][is.na(samplesList[[i]]$All_Reads.fr_count), ]$All_Reads.fr_count <- 0  # convert NA values to 0
+} 
+
+final_hist <- do.call(rbind, samplesList) # rbind each samples' histogram dataframe into 1 final dataframe. 
+final_hist$sample <- unlist(lapply(names(samplesList), rep, 1000)) # specify samples column so that we can color ggplot by sample.
+final_hist$sample <- factor(final_hist$sample, levels=names(samplesList))
+final_hist <- merge(final_hist, metaData, by="sample")
+
+logFLD <- ggplot(final_hist, aes(x=insert_size, y=log(All_Reads.fr_count), colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+  ylab("log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+FLD <- ggplot(final_hist, aes(x=insert_size, y=All_Reads.fr_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF","#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=40)+
+  ylab("Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+percent_hist <- samplesList
+
+percent_count <-lapply(percent_hist, function(percent_hist){ percent_hist$All_Reads.fr_count/sum(na.omit(percent_hist$All_Reads.fr_count))})
+
+for(i in 1:length(percent_hist)){
+  percent_hist[[i]]$percent_count <- percent_count[[i]]
+}
+percent_hist <- do.call(rbind, percent_hist) # rbind each samples' histogram dataframe into 1 percent dataframe. 
+percent_hist$sample <- unlist(lapply(names(samplesList), rep, 1000)) # specify samples column so that we can color ggplot by sample.
+percent_hist$sample <- factor(percent_hist$sample, levels=names(samplesList))
+percent_hist <- merge(percent_hist, metaData, by="sample")
+
+pdf("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Figures_multimap/noncentromeric_percent_hist_FLD.pdf")
+ggplot(percent_hist, aes(x=insert_size, y=log(percent_count), colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF","#90CAF8FF","#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+    scale_x_continuous(n.breaks=10)+
+  ylab("Normalized log10 Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+ggplot(percent_hist, aes(x=insert_size, y=percent_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+   theme_bw(base_size = 10) + 
+   scale_x_continuous(n.breaks=10)+
+  ylab("Normalized Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+
+ggplot(percent_hist, aes(x=insert_size, y=percent_count, colour=sample)) + 
+  geom_line(linewidth=0.5) + 
+  scale_colour_manual(values=c("#BADEFAFF", "#90CAF8FF", "#64B4F6FF", "#9FA7D9FF", "#5B6BBFFF", "#19227EFF")) +
+  facet_wrap(~Condition)+
+  scale_x_continuous(n.breaks=10)+
+   theme_bw(base_size = 10) + 
+  ylab("Normalized Count") + 
+  ggtitle("Fragment Length Distribution of all Samples") + 
+  theme(legend.position="bottom")
+dev.off()
+```
+
+# Read in feature counts from different settings & make DESeq object
+## feature counts allOverlaps
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_7_featureCounts")
+featureCounts <- list()
+for(i in 1:length(samplenames)){
+  featureCounts[[i]] <- read.table(paste0(samplenames[i],"/", samplenames[i], "_allOverlaps_counts.txt"), skip=1, header=T) # read in featureCounts file for each sample
+  colnames(featureCounts[[i]])[ncol(featureCounts[[i]])] <- samplenames[i]
+}
+names(featureCounts) <- samplenames
+
+IvsM_Counts <- matrix(nrow=nrow(featureCounts[[1]]), ncol=length(featureCounts), dimnames=list(featureCounts[[1]]$Geneid, names(featureCounts)))
+for(i in 1:length(featureCounts)){
+  IvsM_Counts[ ,i] <- as.integer(featureCounts[[i]][, 7])
+}
+
+# make DESeq object from fragCounts matrix
+dds <- DESeq2::DESeqDataSetFromMatrix(countData=IvsM_Counts, design=~Biorep+Condition, colData= metaData)
+dds <- estimateSizeFactors(dds)
+# perform DESeq
+# dds <- DESeq(dds)
+# rlog normalize for QC metrics visualization
+rlogdds <- rlog(dds)
+
+# get pearson correlation coefficients for pairwise comparisons between samples
+sampleDists <- dist(t(assay(rlogdds))) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDistMatrix <- as.matrix(sampleDists)
+row.names(metaData) <- metaData$sample
+# plot sample distance matrix
+pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/post_peakcalling_analysis/Figures/"
+pdf(paste0(pdf_dir, "sampleDistMatrix.pdf"), width=5, height=4)
+pheatmap(sampleDistMatrix,colorRampPalette(rev(c("white","white", "#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = metaData[ ,-1], annotation_col = metaData[ ,-1], annotation_colors = hm_cols) # plot correlation heatmap
+dev.off()
+
+### plot PCA:
+
+# PCA based on all peaks
+scaled_data <- scale(t(counts(dds, normalized=T)))
+pca_result <- prcomp(scaled_data)
+
+# plot the variance explained by each PC
+plot(1:length(pca_result$sdev), pca_result$sdev^2 / sum(pca_result$sdev^2),
+     type = "b", xlab = "Principal Component", ylab = "Variance Explained")
+
+# pca_result$x is where the sample is located in PCA space. 
+pca_result_df <- as.data.frame(pca_result$x)
+
+pca_result_df <- cbind(pca_result_df, metaData) # include variables associated with samples
+
+VarianceExplained <- as.integer((pca_result$sdev^2 / sum(pca_result$sdev^2))*100) # variance explained by each PC 
+# PC1 vs PC2
+
+pdf(paste0(pdf_dir, "PCA.pdf"), width=5.5, height=4)
+ggplot(data=pca_result_df) + geom_point(aes(x=PC1, y=PC2, color=Condition, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", VarianceExplained[1], "% Variance Explained"))+ylab(paste0("PC2: ", VarianceExplained[2], "% Variance Explained"))+theme_classic()+ggtitle("PCA: Normalized counts, all Peaks")+scale_colour_manual(values=hm_cols$Condition)+
+  scale_x_continuous(limits = c(-700,500))+
+  scale_y_continuous(limits = c(-700,500))
+
+# by treatment- top 500 most variable peaks
+plotPCA(rlogdds, intgroup=c("Condition"))+theme_classic()+ggtitle("Principal Component:top 500 most variable peaks")+scale_colour_manual(values=hm_cols$Condition)+
+  scale_x_continuous(limits = c(-30,30))+
+  scale_y_continuous(limits = c(-30,30))
+
+dev.off()
+```
+

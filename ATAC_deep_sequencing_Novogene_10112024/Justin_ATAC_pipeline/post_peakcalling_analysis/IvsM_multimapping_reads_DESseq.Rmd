@@ -1,0 +1,999 @@
+---
+title: "IvsM_DESeq_multimapped_reads"
+author: "Joanna Yeung"
+date: "2025-08-12"
+output: html_document
+---
+
+```{r}
+hm_cols <- list(Condition=c("Interphase"="#E7210A", "Mitotic"="#24325FFF"),
+                Biorep=c("1"="#4269D0FF", "2"="#EFB118FF", "3"="#FF725CFF"),
+                Centromere=c("Yes"="gold", "No"="white"))
+# make TxDb object from Xenopus Laevis gtf file
+TxDb.Xeno <- txdbmaker::makeTxDbFromGFF("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+
+gene_annoXeno <- import("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+```
+
+```{r, warning=F}
+library(GenomicFeatures)
+library(GenomicRanges)
+library(rtracklayer)
+library(chromVAR)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(ChIPseeker)
+library(pheatmap)
+library(readr)
+library(ggrepel)
+library(chromPlot)
+library(rtracklayer)
+library(tidyr)
+library(dplyr)
+library(ggsci)
+```
+
+# import epigenetic info
+```{r}
+# import Centromeric regions
+CENPA_OwenSmith_regions <- import.bed("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/GSE153058_xla_v10.2_cen.bed")
+
+# import histone mods peaks
+H3K9me3_peaks <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/peaks/H3K9me3_spermatozoon_adult_GSM1944484_1349_broadPeaks.bed")
+H3K9me3_peaks <- GRanges(seqnames=H3K9me3_peaks$V1, ranges = IRanges(start=H3K9me3_peaks$V2, end=H3K9me3_peaks$V3), ID=H3K9me3_peaks$V4)
+
+H3K4me3_peaks <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/peaks/H3K4me3_sperm_egg_extract_adult_frog_GSM3587294_15598_broadPeaks.bed")
+H3K4me3_peaks <- GRanges(seqnames=H3K4me3_peaks$V1, ranges = IRanges(start=H3K4me3_peaks$V2, end=H3K4me3_peaks$V3), ID=H3K4me3_peaks$V4)
+
+H3K27me3_peaks <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/peaks/H3K27me3_sperm_egg_extract_adult_frog_GSM3587306_15593_broadPeaks.bed")
+H3K27me3_peaks <- GRanges(seqnames=H3K27me3_peaks$V1, ranges = IRanges(start=H3K27me3_peaks$V2, end=H3K27me3_peaks$V3), ID=H3K27me3_peaks$V4)
+```
+# import histone mods bigwig tracks
+```{r}
+H3K9me3_bw <- import.bw("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/bigwigs/H3K9me3_spermatozoon_adult_GSM1944484_1349.bw")
+H3K4me3_bw <- import.bw("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/bigwigs/H3K4me3_sperm_egg_extract_adult_frog_GSM3587294_15598.bw")
+H3K27me3_bw <- import.bw("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/bigwigs/H3K27me3_sperm_egg_extract_adult_frog_GSM3587306_15593.bw")
+
+# keep only GRanges that are overlapping peaks with >= 1st quartile score value
+s <- summary(H3K9me3_bw[H3K9me3_bw %over% H3K9me3_peaks]$score)
+H3K9me3_bw <- H3K9me3_bw[H3K9me3_bw$score >= s[2] ] 
+
+s <- summary(H3K4me3_bw[H3K4me3_bw %over% H3K4me3_peaks]$score)
+H3K4me3_bw <- H3K4me3_bw[H3K4me3_bw$score >= s[2] ] 
+
+s <- summary(H3K27me3_bw[H3K27me3_bw %over% H3K27me3_peaks]$score)
+H3K27me3_bw <- H3K27me3_bw[H3K27me3_bw$score >= s[2] ] 
+
+# remove Scaffold & MT chr
+H3K9me3_bw <- H3K9me3_bw[!grepl("Sca|MT", seqnames(H3K9me3_bw))]
+H3K4me3_bw <- H3K4me3_bw[!grepl("Sca|MT", seqnames(H3K4me3_bw))]
+H3K27me3_bw <- H3K27me3_bw[!grepl("Sca|MT", seqnames(H3K27me3_bw))]
+# keep only peaks that have a score value >= 1st quartile (high confidence)
+H3K9me3_hc_peaks <- H3K9me3_peaks[H3K9me3_peaks %over% H3K9me3_bw]
+H3K4me3_hc_peaks <- H3K4me3_peaks[H3K4me3_peaks %over% H3K4me3_bw]
+H3K27me3_hc_peaks <- H3K27me3_peaks[H3K27me3_peaks %over% H3K27me3_bw]
+```
+
+# featureCounts, PCA & Correlation including HIRA IvsM counts under IvsM masterpeaks. 
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_7_featureCounts")
+IvsM_samplenames <- dir(pattern="atacHAK")[c(1,3,4,2,5,6)]
+
+# make metaData from all samples
+IvsM.metaData <- data.frame(sample=IvsMsamplenames, Condition=c("Interphase", "Interphase", "Interphase", "Mitotic",  "Mitotic",  "Mitotic"), Genotype=c(rep("Interphase", 3), rep("Mitosis", 3)), Biorep=c("1", "2", "3", "1", "2", "3"))
+
+feature_IvsMCounts <- list()
+for(i in 1:length(IvsM_samplenames)){
+  feature_IvsMCounts[[i]] <- read.table(paste0(IvsM_samplenames[i],"/", IvsM_samplenames[i], "_allOverlaps_counts.txt"), skip=1, header=T) # read in feature_IvsMCounts file for each sample
+  colnames(feature_IvsMCounts[[i]])[ncol(feature_IvsMCounts[[i]])] <- IvsM_samplenames[i]
+}
+names(feature_IvsMCounts) <- IvsM_samplenames
+
+IvsMCounts <- matrix(nrow=nrow(feature_IvsMCounts[[1]]), ncol=length(feature_IvsMCounts), dimnames=list(feature_IvsMCounts[[1]]$Geneid, names(feature_IvsMCounts)))
+for(i in 1:length(feature_IvsMCounts)){
+  IvsMCounts[ ,i] <- as.integer(feature_IvsMCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_IvsMCounts matrix
+IvsM.dds <- DESeq2::DESeqDataSetFromMatrix(countData=IvsMCounts, design=~Biorep+Condition, colData= IvsM.metaData)
+IvsM.dds <- estimateSizeFactors(IvsM.dds)
+IvsM.dds <- estimateDispersions(IvsM.dds)
+
+pdf_dir <- "/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/post_peakcalling_analysis/Figures"
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/DESeq_dispersion_estimates.png"))
+plotDispEsts(IvsM.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_IvsM.dds <- rlog(IvsM.dds)
+
+# get pearson correlation coefficients for pairwise comparisons between samples
+sampleDists <- dist(t(assay(rlog_IvsM.dds ))) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDistMatrix <- as.matrix(sampleDists)
+row.names(sampleDistMatrix) <- IvsM.metaData$sample
+# plot sample distance matrix
+
+row.names(IvsM.metaData) <- IvsM.metaData$sample
+```
+
+# perform DESeq-- significant results are absolute FC > 2.46 (log2FC > 1.3) & padj < 0.05
+```{r}
+IvsM.dds <- DESeq(IvsM.dds)
+IvsM.res <- results(IvsM.dds)
+write.csv(IvsM.res, "/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/post_peakcalling_analysis/Figures/IvsM.DESeq.res.csv")
+# get significant results
+IvsM.sigResWald <- IvsM.res[IvsM.res$padj < 0.05 & abs(IvsM.res$log2FoldChange) > 1.3, ]
+IvsM.sigResWald <- IvsM.sigResWald[order(IvsM.sigResWald$log2FoldChange, decreasing=T), ]
+# get peak_ids of significant peaks. 
+sigPeak.ID.Wald <- unique(row.names(IvsM.sigResWald))
+```
+
+# rlogCounts under significant peaks
+```{r}
+rlog_IvsM.Mat <- assays(IvsM.dds)[[1]]
+rlog_IvsM.sigMat <- rlog_IvsM.Mat[row.names(rlog_IvsM.Mat) %in% sigPeak.ID.Wald, ]
+
+set.seed(2025)
+k <- pheatmap(rlog_IvsM.sigMat, scale="row", k=2)
+
+# annotate which cluster peaks belong to 
+anno.IvsM.sigPeaks_df <- data.frame(row.names = names(k$kmeans$cluster), Cluster=k$kmeans$cluster)
+# annotate if peaks overlap with centromeres
+anno.IvsM.sigPeaks_df$Centromere <- ifelse(row.names(anno.IvsM.sigPeaks_df) %in% IvsM.masterpeaks[IvsM.masterpeaks %over% CENPA_OwenSmith_regions]$peak_id, "Yes", "No")
+
+pdf(paste0(pdf_dir, "/rlog_IvsM.sigMat.pdf"))
+pheatmap(rlog_IvsM.sigMat, scale="row", cluster_cols = F, cluster_rows = T, annotation_col = IvsM.metaData[ ,-c(1,3)], annotation_row = anno.IvsM.sigPeaks_df, annotation_colors = hm_cols, show_rownames = F, main=paste0("Significant Peaks:", nrow(rlog_IvsM.sigMat)))
+dev.off()
+
+# Cluster 2= Interphase Up peaks
+# Cluster 1= Mitosis Up peaks
+```
+
+# Overlap of significant peaks (Venn diagram)
+```{r}
+pdf(paste0(pdf_dir, "/IvsM.diffsigPeaks.centromere.VennDiagram.pdf"))
+create_proportional_venn(sets=list(row.names(IvsM.sigResWald[IvsM.sigResWald$log2FoldChange >0, ]), 
+                                   row.names(IvsM.sigResWald[IvsM.sigResWald$log2FoldChange <0, ]), 
+                                   IvsM.masterpeaks[IvsM.masterpeaks %over% CENPA_OwenSmith_regions]$peak_id), 
+                         set_labels = c("Mitotic Up", "Interphase Up", "Centromeres"), 
+                         colors = c("#24325FFF", "#E7210A", "gold")
+)
+dev.off()
+```
+
+# Peak Annotation of significant peaks vs all peaks 
+```{r}
+# get GRanges of sigPeaks
+IvsM.masterpeaks <- import("/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_6_IDR_tagalign/nonredundant_masterpeaks_IDR.900000.0.1.gtf")
+IvsM.sigResWald_GR <- IvsM.masterpeaks[IvsM.masterpeaks$peak_id %in% sigPeak.ID.Wald]
+
+IvsM.sigResWald_GR <- GRangesList(All=IvsM.sigResWald_GR,
+InterphaseUp=IvsM.sigResWald_GR[IvsM.sigResWald_GR$peak_id %in% names(which(k$kmeans$cluster ==2))],
+MitosisUp=IvsM.sigResWald_GR[IvsM.sigResWald_GR$peak_id %in% names(which(k$kmeans$cluster ==1))] )
+
+anno.IvsM.sigResWald_GR <- lapply(IvsM.sigResWald_GR, annotatePeak, TxDb = TxDb.Xeno)
+anno.IvsM.masterpeaks_GR <- annotatePeak(IvsM.masterpeaks, TxDb = TxDb.Xeno)
+```
+
+# plot peak anno
+```{r}
+pdf(paste0(pdf_dir, "/plotAnnoPie.pdf"))
+plotAnnoPie(anno.IvsM.sigResWald_GR$MitosisUp, main="More accessible in Mitosis")
+plotAnnoPie(anno.IvsM.sigResWald_GR$InterphaseUp, main="More accessible in Interphase")
+plotAnnoPie(anno.IvsM.sigResWald_GR$All, main="All significant accessible peaks")
+plotAnnoPie(anno.IvsM.masterpeaks_GR, main="All accessible peaks")
+dev.off()
+
+# plot distance from TSS
+pdf(paste0(pdf_dir, "/plotDistToTSS.pdf"))
+plotDistToTSS(anno.IvsM.sigResWald_GR$MitosisUp, title="More accessible in Mitosis")
+plotDistToTSS(anno.IvsM.sigResWald_GR$InterphaseUp, title="More accessible in Interphase")
+plotDistToTSS(anno.IvsM.sigResWald_GR$All, title="All significant accessible peaks")
+plotDistToTSS(anno.IvsM.masterpeaks_GR, title="All accessible peaks")
+dev.off()
+```
+
+# extract annotation info of significant peaks
+```{r}
+anno.IvsM.sigResWald_GR <- lapply(anno.IvsM.sigResWald_GR, as.GRanges)
+
+for(i in 1:length(anno.IvsM.sigResWald_GR)){
+anno.IvsM.sigResWald_GR[[i]]$gene_biotype <- gene_annoXeno[match(anno.IvsM.sigResWald_GR[[i]]$geneId, gene_annoXeno$gene_id), ]$gene_biotype
+anno.IvsM.sigResWald_GR[[i]]$gbkey <- gene_annoXeno[match(anno.IvsM.sigResWald_GR[[i]]$geneId, gene_annoXeno$gene_id), ]$gbkey
+anno.IvsM.sigResWald_GR[[i]]$annotation <- gsub("^\\s*(\\S+)\\s(?!UTR).*", "\\1", anno.IvsM.sigResWald_GR[[i]]$annotation, perl = TRUE)
+anno.IvsM.sigResWald_GR[[i]]$Centromere <- ifelse(anno.IvsM.sigResWald_GR[[i]] %over% CENPA_OwenSmith_regions, "Centromeric", "Non-centromeric")
+}
+
+# convert anno GR of sig peaks to df 
+anno.IvsM.sigResWald_df <- lapply(anno.IvsM.sigResWald_GR, as.data.frame)
+anno.IvsM.sigResWald_df$InterphaseUp$SigPeak.Cat <- "Interphase Up"
+anno.IvsM.sigResWald_df$MitosisUp$SigPeak.Cat <- "Mitosis Up"
+anno.IvsM.sigResWald_df <- rbind(anno.IvsM.sigResWald_df$InterphaseUp, anno.IvsM.sigResWald_df$MitosisUp)
+```
+
+# plot peak anno stats
+```{r}
+# Shapiro-Wilk test for normality
+anno.IvsM.masterpeaks_GR <- as.GRanges(anno.IvsM.masterpeaks_GR) # convert masterpeaks anno to GR
+shapiro_test <- shapiro.test(sample(abs(anno.IvsM.masterpeaks_GR$distanceToTSS), size=5000))
+print(shapiro_test)
+
+# Visualize distribution of differences
+ggplot(as.data.frame(anno.IvsM.masterpeaks_GR), aes(x = abs(distanceToTSS))) +
+  geom_histogram(binwidth = 10000, fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of absolute distance to TSS values", x = "DistancetoTSS", y = "Count")
+```
+```{r}
+# Wilcoxon rank-sum test
+w <- wilcox.test(abs(anno.IvsM.sigResWald_GR$InterphaseUp$distanceToTSS), abs(anno.IvsM.sigResWald_GR$MitosisUp$distanceToTSS))
+
+# Kolmogorov–Smirnov test
+ks <- ks.test(abs(anno.IvsM.sigResWald_GR$InterphaseUp$distanceToTSS), abs(anno.IvsM.sigResWald_GR$MitosisUp$distanceToTSS))
+
+# plot distribution of peak distance to nearest TSS: no difference I vs M. 
+pdf(paste0(pdf_dir, "/distancetoNearestTSS.violinPlot.IvsM.pdf"))
+ggplot(anno.IvsM.sigResWald_df, aes(x=SigPeak.Cat, y=abs(distanceToTSS), color=SigPeak.Cat))+geom_violin()+geom_boxplot(width=0.2)+
+scale_color_manual(values=c("#E7210A", "#24325FFF"))+
+theme_minimal()+
+annotate("text", x = 1.5, y = 8e+05, label = paste0("Wilcoxon rank sum p=", w$p.value), vjust = -0.5)+
+annotate("text", x = 1.5, y = 8.5e+05, label = paste0("Kolmogorov–Smirnov p=", ks$p.value), vjust = -0.5)  
+
+# Wilcoxon rank-sum test
+w <- wilcox.test(abs(anno.IvsM.sigResWald_GR$InterphaseUp$distanceToTSS)[which(abs(anno.IvsM.sigResWald_GR$InterphaseUp$distanceToTSS) <= 50000)], abs(anno.IvsM.sigResWald_GR$MitosisUp$distanceToTSS)[which(abs(anno.IvsM.sigResWald_GR$MitosisUp$distanceToTSS) <= 50000)])
+
+# Kolmogorov–Smirnov test
+ks <- ks.test(abs(anno.IvsM.sigResWald_GR$InterphaseUp$distanceToTSS)[which(abs(anno.IvsM.sigResWald_GR$InterphaseUp$distanceToTSS) <= 50000)], abs(anno.IvsM.sigResWald_GR$MitosisUp$distanceToTSS)[which(abs(anno.IvsM.sigResWald_GR$MitosisUp$distanceToTSS) <= 50000)])
+
+ggplot(anno.IvsM.sigResWald_df[abs(anno.IvsM.sigResWald_df$distanceToTSS) <= 50000, ], aes(x=SigPeak.Cat, y=abs(distanceToTSS), color=SigPeak.Cat))+geom_violin()+geom_boxplot(width=0.2)+
+scale_color_manual(values=c("#E7210A", "#24325FFF"))+
+  scale_y_continuous(limits = c(0,60000))+
+  ggtitle("sig peaks found <= 50kb from gene")+
+theme_minimal()+
+annotate("text", x = 1.5, y =5e+04, label = paste0("Wilcoxon rank sum p=", w$p.value), vjust = -0.5)+
+annotate("text", x = 1.5, y = 5.2e+04, label = paste0("Kolmogorov–Smirnov p=", ks$p.value), vjust = -0.5)  
+dev.off()
+```
+
+# plot type of nearest gene for sig peaks (not much difference I vs M)
+```{r}
+IvsM.sig.GeneAnno_df <- anno.IvsM.sigResWald_df %>%
+  group_by(SigPeak.Cat, gene_biotype, annotation, Centromere) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(SigPeak.Cat, Centromere) %>%
+  mutate(PercentTotalPeaks = (n / sum(n))*100)
+
+pdf(paste0(pdf_dir, "/NearestGeneBiotype.IvsM.pdf"))
+ggplot(IvsM.sig.GeneAnno_df, aes(x=gene_biotype, y=PercentTotalPeaks, fill=annotation))+
+  geom_col()+
+  facet_wrap(Centromere~SigPeak.Cat)+
+theme_classic()+
+  theme(axis.text.x = element_text(angle=90))+
+  ggtitle("Type of nearest gene")+
+  scale_fill_cosmic()
+dev.off()
+```
+
+# extract normalized counts under significant peaks
+```{r}
+IvsM.NormCountsMat <- counts(IvsM.dds, normalized=T)
+sig.IvsM.NormCounts <- IvsM.NormCountsMat[row.names(IvsM.NormCountsMat) %in% sigPeak.ID.Wald, ]
+# convert matrix of normalized counts of sig peaks into a dataframe with metaData information for ggplot to accept
+sig.IvsM.NormCounts_df <- list()
+for(i in 1:nrow(sig.IvsM.NormCounts)){
+sig.IvsM.NormCounts_df[[i]] <- data.frame(Counts=sig.IvsM.NormCounts[i, ], sample=names((sig.IvsM.NormCounts[i, ])), Peak_ID= row.names(sig.IvsM.NormCounts)[i], IvsM.metaData)
+}
+sig.IvsM.NormCounts_df <- do.call(rbind, sig.IvsM.NormCounts_df) # combine list into 1 giant dataframe
+```
+
+# convert rlogCounts matrix of significant peaks to df. 
+```{r}
+sig.IvsM.rlogCounts_df <- list()
+for(i in 1:nrow(rlog_IvsM.sigMat)){
+sig.IvsM.rlogCounts_df[[i]] <- data.frame(Counts=rlog_IvsM.sigMat[i, ], sample=names((rlog_IvsM.sigMat[i, ])), Peak_ID= row.names(rlog_IvsM.sigMat)[i], IvsM.metaData)
+}
+sig.IvsM.rlogCounts_df <- do.call(rbind, sig.IvsM.rlogCounts_df) # combine list into 1 giant dataframe
+```
+
+# prepare annotation of different genomic regions as dataframe for plotting genome coverage
+```{r}
+# generate df of centromeric regions
+CENPA_df <- as.data.frame(CENPA_OwenSmith_regions)[ ,c(1:3)]
+colnames(CENPA_df) <- colnames(hg_gap)[1:3]
+
+# generate df of epigenetic marks
+H3K9me3_df <- as.data.frame(H3K9me3_hc_peaks)[ ,c(1:3)]
+colnames(H3K9me3_df) <- colnames(hg_gap)[1:3]
+
+H3K27me3_df <- as.data.frame(H3K27me3_hc_peaks)[ ,c(1:3)]
+colnames(H3K27me3_df) <- colnames(hg_gap)[1:3]
+
+H3K4me3_df <- as.data.frame(H3K4me3_hc_peaks)[ ,c(1:3)]
+colnames(H3K4me3_df) <- colnames(hg_gap)[1:3]
+
+# generate df of chromosome lengths
+xenLae2 <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1_genomic.fna.fai", sep="\t")
+
+# make GRanges object for whole genome
+chrom_lengths <- data.frame(Chrom=xenLae2$V1, ChrLength=xenLae2$V2)
+chrom_lengths <- chrom_lengths[!grepl("Sca|MT", chrom_lengths$Chrom), ]
+```
+# prepare dataframe to plot normalized counts under significant peaks
+```{r}
+# calculate median normalized count under sig peaks within each condition
+IvsM.sigResWald_GR <- lapply(IvsM.sigResWald_GR, function(x){
+  x$Interphase_normCounts <- apply(sig.IvsM.NormCounts[match(x$peak_id, row.names(sig.IvsM.NormCounts)), 1:3], 1, median)
+  x$Mitosis_normCounts <- apply(sig.IvsM.NormCounts[match(x$peak_id, row.names(sig.IvsM.NormCounts)), 4:6], 1, median)
+    return(x)}) 
+# convert GR to df
+sig.IvsM.ResWald_GR_df <-  lapply(IvsM.sigResWald_GR, function(x){
+  x <- as.data.frame(x)[ ,c(1:3, 10, 11:12)]
+  colnames(x) <- c(colnames(hg_gap)[1:3], "ID", "Interphase_normCounts", "Mitosis_normCounts")
+  return(x)})  
+# add column for midpoint of peak to plot normalized read count at on the x axis
+sig.IvsM.ResWald_GR_df <- lapply(sig.IvsM.ResWald_GR_df, function(x){x %>% 
+  mutate(Midpoint = (Start + End) / 2)})
+# convert to long format for ggplot to accept
+sig.IvsM.ResWald_long_df <- lapply(sig.IvsM.ResWald_GR_df, function(x){x %>%
+  dplyr::select(Chrom, Midpoint, Interphase_normCounts, Mitosis_normCounts) %>%
+  tidyr::pivot_longer(cols = c(Interphase_normCounts, Mitosis_normCounts), 
+                      names_to = "Sample", values_to = "NormCount") %>%
+  left_join(chrom_lengths, by = "Chrom")})
+```
+
+# plot normalized reads under significant peaks (free y scale for each chromosome)
+```{r}
+pdf(paste0(pdf_dir, "/GenomeCov.IvsM.sigPeaks.pdf"), width=50, height=100)
+# all sig peaks
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$All,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = -20000, ymax = -5000),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$All,
+    aes(xmin = Start, xmax = End, ymin = -40000, ymax = -25000),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -60000, ymax = -45000),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -80000, ymax = -65000),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -100000, ymax = -85000),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("All sig peaks")
+
+# interphase up peaks
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$InterphaseUp,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = -3000, ymax = -1000),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$InterphaseUp,
+    aes(xmin = Start, xmax = End, ymin = -6000, ymax = -4000),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -9000, ymax = -7000),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -12000, ymax = -10000),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -15000, ymax = -13000),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("Interphase Up peaks")
+
+# mitosis up peaks
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$MitosisUp,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = -20000, ymax = -5000),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$MitosisUp,
+    aes(xmin = Start, xmax = End, ymin = -40000, ymax = -25000),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -60000, ymax = -45000),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -80000, ymax = -65000),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -100000, ymax = -85000),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("Mitosis Up peaks")
+
+
+# SAME BUT WITHOUT PEAK TRACKS
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$All,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("All sig peaks")
+
+# interphase up peaks
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$InterphaseUp,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("Interphase Up peaks")
+
+# mitosis up peaks
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$MitosisUp,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("Mitosis Up peaks")
+
+# ONLY PEAK TRACKS: NO GENOME COV
+ggplot() +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20, xmax = End+20, ymin = -20, ymax = -5),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$All,
+    aes(xmin = Start, xmax = End, ymin = -40, ymax = -25),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -60, ymax = -45),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -80, ymax = -65),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -100, ymax = -85),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("All sig peaks")
+
+# interphase up peaks
+ggplot() +
+ geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20, xmax = End+20, ymin = -20, ymax = -5),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$InterphaseUp,
+    aes(xmin = Start, xmax = End, ymin = -40, ymax = -25),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -60, ymax = -45),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -80, ymax = -65),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -100, ymax = -85),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("Interphase Up peaks")
+
+# mitosis up peaks
+ggplot() +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = -20, ymax = -5),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$MitosisUp,
+    aes(xmin = Start, xmax = End, ymin = -40, ymax = -25),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -60, ymax = -45),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -80, ymax = -65),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -100, ymax = -85),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("Mitosis Up peaks")
+dev.off()
+```
+
+# plot normalized reads under significant peaks (fixed y scale for each chromosome)
+```{r}
+pdf(paste0(pdf_dir, "/GenomeCov.IvsM.sigPeaks_fixedScale.pdf"), width=30, height=50)
+# all sig peaks
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$All,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = -200000, ymax = -50000),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$All,
+    aes(xmin = Start, xmax = End, ymin = -400000, ymax = -250000),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -600000, ymax = -450000),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -800000, ymax = -650000),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -100000, ymax = -85000),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free_x", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("All sig peaks")
+
+# interphase up peaks
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$InterphaseUp,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = -3000, ymax = -1000),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$InterphaseUp,
+    aes(xmin = Start, xmax = End, ymin = -6000, ymax = -4000),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -9000, ymax = -7000),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -12000, ymax = -10000),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -15000, ymax = -13000),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free_x", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("Interphase Up peaks")
+
+# mitosis up peaks
+ggplot() +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$MitosisUp,
+    aes(x = Midpoint, y = NormCount, color = Sample),
+    alpha = 0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-200000, xmax = End+200000, ymin = -200000, ymax = -50000),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.IvsM.ResWald_GR_df$MitosisUp,
+    aes(xmin = Start, xmax = End, ymin = -400000, ymax = -250000),
+    fill = "black", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -600000, ymax = -450000),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -800000, ymax = -650000),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -1000000, ymax = -850000),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~ Chrom, scales = "free_x", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  ggtitle("Mitosis Up peaks")
+dev.off()
+
+```
+
+# plot bigwig tracks of epigenetic mods relative to sig peaks & centromeres
+```{r}
+# generate df of bigwig signal under high confidence peaks
+H3K9me3_bw$HistMod <- "H3K9me3"
+H3K4me3_bw$HistMod <- "H3K4me3"
+H3K27me3_bw$HistMod <- "H3K27me3"
+
+HistMods_bw_df <- as.data.frame(c(H3K9me3_bw, H3K4me3_bw, H3K27me3_bw))[ ,c(1:3, 6:7)]
+colnames(HistMods_bw_df) <- c(colnames(hg_gap)[1:3], "score", "HistMod")
+HistMods_bw_df$Midpoint <- (HistMods_bw_df$Start+HistMods_bw_df$End)/2
+
+
+# bin 20bp intervals into 2kb intervals instead
+HistMods_bw_2kb <- HistMods_bw_df %>%
+  mutate(Bin2kb = floor(Start / 2000) * 2000) %>%   # bin start into 1kb blocks
+  group_by(Chrom, HistMod, Bin2kb) %>%
+  summarise(
+    score = mean(score, na.rm = TRUE),
+    Start = min(Start),
+    End   = max(End),
+    Midpoint = (min(Start) + max(End)) / 2,
+    .groups = "drop"
+  )
+```
+
+# plot histone mods signal vs norm counts under sig peaks
+```{r}
+pdf(paste0(pdf_dir, "/GenomeCov.IvsM.sigPeaks.vs.HistModSignal.pdf"), width=50, height=100)
+ggplot() +
+  geom_col(
+    data = HistMods_bw_2kb,
+    aes(x = Midpoint, y = -score, fill = HistMod), position="dodge", alpha=0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = 0, ymax = 8),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$All,
+    aes(x = Midpoint, y=(NormCount/1e+04)+10, color=Sample), alpha=0.5, size=2
+  ) +
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~Chrom, scales = "free_x", ncol=1) +
+  theme_classic() +
+  xlab("Genomic Position") +
+  ylab("Bigwig score : Normalized Counts/10^4") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40), 
+    axis.text.x = element_text(size = 40), 
+    axis.title = element_text(size = 40),
+    title=element_text(size = 40), 
+    legend.text=element_text(size = 40)
+  )+
+  scale_fill_manual(
+    values = c("olivedrab", "darkorange", "plum4")
+  )+
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  scale_y_continuous(limits = c(-50, 50), oob = oob_squish)+ # for values above scale limits, just squish to max limit and do not remove
+  ggtitle("norm counts under all sig peaks vs histone mods signal")
+
+# interphase up peaks 
+ggplot() +
+  geom_col(
+    data = HistMods_bw_2kb,
+    aes(x = Midpoint, y = -score, fill = HistMod), position="dodge", alpha=0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = 0, ymax = 8),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$InterphaseUp,
+    aes(x = Midpoint, y=(NormCount/1e+02)+10, color=Sample), alpha=0.5, size=2
+  ) +
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~Chrom, scales = "free_x", ncol=1) +
+  theme_classic() +
+  xlab("Genomic Position") +
+  ylab("Bigwig score : Normalized Counts/10^2") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40), 
+    axis.text.x = element_text(size = 40), 
+    axis.title = element_text(size = 40),
+    title=element_text(size = 40), 
+    legend.text=element_text(size = 40)
+  )+
+  scale_fill_manual(
+    values = c("olivedrab", "darkorange", "plum4")
+  )+
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  scale_y_continuous(limits = c(-50, 50), oob = oob_squish)+ # for values above scale limits, just squish to max limit and do not remove
+  ggtitle("norm counts under Interphase Up peaks vs histone mods signal")
+
+# mitosis up peaks 
+ggplot() +
+  geom_col(
+    data = HistMods_bw_2kb,
+    aes(x = Midpoint, y = -score, fill = HistMod), position="dodge", alpha=0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = 0, ymax = 8),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_point(
+    data = sig.IvsM.ResWald_long_df$MitosisUp,
+    aes(x = Midpoint, y=(NormCount/1e+04)+10, color=Sample), alpha=0.5, size=2
+  ) +
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~Chrom, scales = "free_x", ncol=1) +
+  theme_classic() +
+  xlab("Genomic Position") +
+  ylab("Bigwig score : Normalized Counts/10^4") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40), 
+    axis.text.x = element_text(size = 40), 
+    axis.title = element_text(size = 40),
+    title=element_text(size = 40), 
+    legend.text=element_text(size = 40)
+  )+
+  scale_fill_manual(
+    values = c("olivedrab", "darkorange", "plum4")
+  )+
+  scale_color_manual(values = c("#E7210A", "#24325FFF"))+
+  scale_y_continuous(limits = c(-50, 50), oob = oob_squish)+ # for values above scale limits, just squish to max limit and do not remove
+  ggtitle("norm counts under mitosis up peaks vs histone mods signal")
+dev.off()
+```
