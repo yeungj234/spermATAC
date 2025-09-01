@@ -1,0 +1,783 @@
+---
+title: "PCA_differentSampleCombos"
+author: "Joanna Yeung"
+date: "2025-08-30"
+output: html_document
+---
+```{r, warning=F}
+library(GenomicFeatures)
+library(GenomicRanges)
+library(rtracklayer)
+library(chromVAR)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(ChIPseeker)
+library(pheatmap)
+library(readr)
+library(ggrepel)
+library(chromPlot)
+library(rtracklayer)
+```
+
+```{r}
+hm_cols <- list(Condition=c("Interphase"="#E7210A", "Mitosis"="#24325FFF"),
+                Biorep=c("4"="#D53E4F", "5"="#FC8D59", "6"="#3288BD"), 
+                Genotype=c("WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D"))
+```
+
+# specify output directory
+```{r}
+pdf_dir <- "/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/post_peakcalling_analysis/PCA_differentSampleCombos"
+```
+
+# make PCA function
+```{r}
+runPCA <- function(mat, Mut_metaData, ntop = nrow(mat)) {
+  # Calculate row variances
+  rv <- rowVars(mat)
+  
+  # Select top variable features (ntop capped by number of rows)
+  select <- order(rv, decreasing = TRUE)[seq_len(min(ntop, length(rv)))]
+  
+  # Subset and transpose for PCA (samples x genes)
+  mat_forPCA <- t(mat[select, ])
+  
+  # Run PCA (scale. = TRUE is usually recommended)
+  pca_result <- prcomp(mat_forPCA, scale. = TRUE)
+  
+  # Calculate variance explained (in percentages, rounded)
+  VarianceExplained <- round((pca_result$sdev^2 / sum(pca_result$sdev^2)) * 100)
+  
+  # Combine PCA coordinates with metadata
+  pca_result_df <- cbind(as.data.frame(pca_result$x), Mut_metaData)
+  
+  # Return as list for convenience
+  return(list(pca_result = pca_result,
+              pca_df = pca_result_df,
+              variance_explained = VarianceExplained))
+}
+```
+
+# featureCounts, PCA of Biorep 4 & 6
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove biorep 5 which is outlier based off prior PCA
+Mut_samplenames <- Mut_samplenames[!grepl("040|041|042", Mut_samplenames)]
+
+BiorepCombo <- "Biorep4and6"
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(c(4,6), 3)))
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/", BiorepCombo, ".DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+
+
+### plot PCA:
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+
+# remove batch effect then visualize with PCA
+
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+
+pdf(paste0(pdf_dir, "/", BiorepCombo, ".HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
+
+# featureCounts, PCA of Biorep 4 & 6
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove biorep 5 which is outlier based off prior PCA
+Mut_samplenames <- Mut_samplenames[!grepl("040|041|042", Mut_samplenames)]
+
+BiorepCombo <- "Biorep4and6"
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(c(4,6), 3)))
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/", BiorepCombo, ".DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+
+
+### plot PCA:
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+
+# remove batch effect then visualize with PCA
+
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+
+pdf(paste0(pdf_dir, "/", BiorepCombo, ".HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
+
+# featureCounts, PCA of Biorep 4 & 5
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove biorep 5 which is outlier based off prior PCA
+Mut_samplenames <- Mut_samplenames[!grepl("043|044|045", Mut_samplenames)]
+
+BiorepCombo <- "Biorep4and5"
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(c(4,5), 3)))
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/", BiorepCombo, ".DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+
+
+### plot PCA:
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+
+# remove batch effect then visualize with PCA
+
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+
+pdf(paste0(pdf_dir, "/", BiorepCombo, ".HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
+
+# featureCounts, PCA of Biorep 5 & 6
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove biorep 5 which is outlier based off prior PCA
+Mut_samplenames <- Mut_samplenames[!grepl("034|035|036", Mut_samplenames)]
+
+BiorepCombo <- "Biorep5and6"
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(c(5,6), 3)))
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/", BiorepCombo, ".DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+
+
+### plot PCA:
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+
+# remove batch effect then visualize with PCA
+
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+
+pdf(paste0(pdf_dir, "/", BiorepCombo, ".HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
+
+# featureCounts, PCA of "Biorep.WT.5.6, Mut.4.5"
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove biorep 5 which is outlier based off prior PCA
+Mut_samplenames <- Mut_samplenames[!grepl("034|044|045", Mut_samplenames)]
+
+BiorepCombo <- "Biorep.WT.5.6_Mut.4.5"
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(c("test1","test2"), 3)))
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/", BiorepCombo, ".DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+
+
+### plot PCA:
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+
+# remove batch effect then visualize with PCA
+
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+
+pdf(paste0(pdf_dir, "/", BiorepCombo, ".HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
+
+# featureCounts, PCA of "Biorep.WT.4.5, Mut.5.6"
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove biorep 5 which is outlier based off prior PCA
+Mut_samplenames <- Mut_samplenames[!grepl("043|035|036", Mut_samplenames)]
+
+BiorepCombo <- "Biorep.WT.4.5_Mut.5.6"
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(c("test1","test2"), 3)))
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/", BiorepCombo, ".DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+
+
+### plot PCA:
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+
+# remove batch effect then visualize with PCA
+
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+
+pdf(paste0(pdf_dir, "/", BiorepCombo, ".HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
+
+# featureCounts, PCA of "Biorep.WT.4.6, Mut.5.6"
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove biorep 5 which is outlier based off prior PCA
+Mut_samplenames <- Mut_samplenames[!grepl("040|035|036", Mut_samplenames)]
+
+BiorepCombo <- "Biorep.WT.4.6_Mut.5.6"
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(c("test1","test2"), 3)))
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/", BiorepCombo, ".DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+
+
+### plot PCA:
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+
+# remove batch effect then visualize with PCA
+
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+
+pdf(paste0(pdf_dir, "/", BiorepCombo, ".HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
+
+# featureCounts, PCA of "Biorep.WT.4.6, Mut.4.5"
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove biorep 5 which is outlier based off prior PCA
+Mut_samplenames <- Mut_samplenames[!grepl("040|044|045", Mut_samplenames)]
+
+BiorepCombo <- "Biorep.WT.4.6_Mut.4.5"
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(rep(c("test1","test2"), 3)))
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/", BiorepCombo, ".DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+
+
+### plot PCA:
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+
+# remove batch effect then visualize with PCA
+
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+
+# plot PCA comparing batch corrected vs uncorrected counts. 
+
+pdf(paste0(pdf_dir, "/", BiorepCombo, ".HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
