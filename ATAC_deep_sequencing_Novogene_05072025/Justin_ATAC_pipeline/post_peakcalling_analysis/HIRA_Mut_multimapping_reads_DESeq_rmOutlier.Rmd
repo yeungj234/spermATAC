@@ -1,0 +1,673 @@
+---
+title: "HIRA_Mut_DESeq_multimapped_reads"
+author: "Joanna Yeung"
+date: "2025-08-12"
+output: html_document
+---
+
+# Find differential accessible regions between WT & HIRA mutants in mitosis-- based off of PCA_differentSampleCombos.Rmd, removed certain samples to improve clustering by genotype -- redo DESeq again
+
+```{r, warning=F}
+library(GenomicFeatures)
+library(GenomicRanges)
+library(rtracklayer)
+library(chromVAR)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(RColorBrewer)
+library(cowplot)
+library(scales)
+library(ChIPseeker)
+library(readr)
+library(ggrepel)
+library(chromPlot)
+library(ggbeeswarm)
+```
+
+```{r}
+hm_cols <- list(Condition=c("Interphase"="#E7210A", "Mitosis"="#24325FFF"),
+                Biorep=c("pseudorep4.6"="#FC8D59", "Biorep5"="#3288BD"), 
+                Genotype=c("WT"="#1B9E77", "43AMut"="#E7298A", "HIDMut"="#A6761D"), 
+                Cluster=c("1"="#FBB4AE", "2"="#B3CDE3","3"="#CCEBC5")
+)
+# make TxDb object from Xenopus Laevis gtf file
+TxDb.Xeno <- txdbmaker::makeTxDbFromGFF("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+
+gene_annoXeno <- import("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+```
+
+# specify output directory
+```{r}
+pdf_dir <- "/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/post_peakcalling_analysis/Figures_rmOutlier"
+```
+
+# import epigenetic info
+```{r}
+# import Centromeric regions
+CENPA_OwenSmith_regions <- import.bed("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/peaks/GSE153058_xla_v10.2_cen.bed")
+
+# import histone mods peaks
+H3K9me3_peaks <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/peaks/H3K9me3_spermatozoon_adult_GSM1944484_1349_broadPeaks.bed")
+H3K9me3_peaks <- GRanges(seqnames=H3K9me3_peaks$V1, ranges = IRanges(start=H3K9me3_peaks$V2, end=H3K9me3_peaks$V3), ID=H3K9me3_peaks$V4)
+
+H3K4me3_peaks <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/peaks/H3K4me3_sperm_egg_extract_adult_frog_GSM3587294_15598_broadPeaks.bed")
+H3K4me3_peaks <- GRanges(seqnames=H3K4me3_peaks$V1, ranges = IRanges(start=H3K4me3_peaks$V2, end=H3K4me3_peaks$V3), ID=H3K4me3_peaks$V4)
+
+H3K27me3_peaks <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/peaks/H3K27me3_sperm_egg_extract_adult_frog_GSM3587306_15593_broadPeaks.bed")
+H3K27me3_peaks <- GRanges(seqnames=H3K27me3_peaks$V1, ranges = IRanges(start=H3K27me3_peaks$V2, end=H3K27me3_peaks$V3), ID=H3K27me3_peaks$V4)
+```
+# import histone mods bigwig tracks
+```{r}
+H3K9me3_bw <- import.bw("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/bigwigs/H3K9me3_spermatozoon_adult_GSM1944484_1349.bw")
+H3K4me3_bw <- import.bw("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/bigwigs/H3K4me3_sperm_egg_extract_adult_frog_GSM3587294_15598.bw")
+H3K27me3_bw <- import.bw("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/Xenbase/ChIPseq/bigwigs/H3K27me3_sperm_egg_extract_adult_frog_GSM3587306_15593.bw")
+
+# keep only GRanges that are overlapping peaks with >= 1st quartile score value
+s <- summary(H3K9me3_bw[H3K9me3_bw %over% H3K9me3_peaks]$score)
+H3K9me3_bw <- H3K9me3_bw[H3K9me3_bw$score >= s[2] ] 
+
+s <- summary(H3K4me3_bw[H3K4me3_bw %over% H3K4me3_peaks]$score)
+H3K4me3_bw <- H3K4me3_bw[H3K4me3_bw$score >= s[2] ] 
+
+s <- summary(H3K27me3_bw[H3K27me3_bw %over% H3K27me3_peaks]$score)
+H3K27me3_bw <- H3K27me3_bw[H3K27me3_bw$score >= s[2] ] 
+
+# remove Scaffold & MT chr
+H3K9me3_bw <- H3K9me3_bw[!grepl("Sca|MT", seqnames(H3K9me3_bw))]
+H3K4me3_bw <- H3K4me3_bw[!grepl("Sca|MT", seqnames(H3K4me3_bw))]
+H3K27me3_bw <- H3K27me3_bw[!grepl("Sca|MT", seqnames(H3K27me3_bw))]
+# keep only peaks that have a score value >= 1st quartile (high confidence)
+H3K9me3_hc_peaks <- H3K9me3_peaks[H3K9me3_peaks %over% H3K9me3_bw]
+H3K4me3_hc_peaks <- H3K4me3_peaks[H3K4me3_peaks %over% H3K4me3_bw]
+H3K27me3_hc_peaks <- H3K27me3_peaks[H3K27me3_peaks %over% H3K27me3_bw]
+```
+
+# featureCounts, PCA & Correlation: remove WT biorep 6, Mutant biorep 4 since the remaining samples cluster best like this (at least in PC2 space)
+```{r}
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_7_featureCounts")
+Mut_samplenames <- dir(pattern="atacHAK")[c(1,4,7,2,5,8,3,6,9)]
+
+# remove WT biorep 6, Mutant biorep 4 since the remaining samples cluster best like this (at least in PC2 space)
+Mut_samplenames <- Mut_samplenames[!grepl("043|035|036", Mut_samplenames)]
+
+feature_MutCounts <- list()
+for(i in 1:length(Mut_samplenames)){
+  feature_MutCounts[[i]] <- read.table(paste0(Mut_samplenames[i],"/", Mut_samplenames[i], "_allOverlaps_HIRAmut_peakset_counts.txt"), skip=1, header=T) # read in feature_MutCounts file for each sample
+  colnames(feature_MutCounts[[i]])[ncol(feature_MutCounts[[i]])] <- Mut_samplenames[i]
+}
+names(feature_MutCounts) <- Mut_samplenames
+
+MutCounts <- matrix(nrow=nrow(feature_MutCounts[[1]]), ncol=length(feature_MutCounts), dimnames=list(feature_MutCounts[[1]]$Geneid, names(feature_MutCounts)))
+for(i in 1:length(feature_MutCounts)){
+  MutCounts[ ,i] <- as.integer(feature_MutCounts[[i]][, 7])
+}
+# make metaData from all samples
+Mut_metaData <- data.frame(sample=Mut_samplenames, Condition=rep("Mitosis", length(Mut_samplenames)), Genotype=gsub(".*_", "", Mut_samplenames), Biorep=as.factor(c("pseudorep4.6","Biorep5", "Biorep5", "pseudorep4.6","Biorep5", "pseudorep4.6")))
+
+# make DESeq object from frag_MutCounts matrix
+HIRA.dds <- DESeq2::DESeqDataSetFromMatrix(countData=MutCounts, design=~Biorep+Genotype, colData= Mut_metaData)
+HIRA.dds <- estimateSizeFactors(HIRA.dds)
+HIRA.dds <- estimateDispersions(HIRA.dds)
+
+# save Dispersion Estimates plot. 
+png(paste0(pdf_dir, "/DESeq_dispersion_estimates.png"))
+plotDispEsts(HIRA.dds, xlab="Parametric")
+dev.off()
+
+# rlog normalize for QC metrics visualization
+rlog_HIRA.dds <- rlog(HIRA.dds)
+
+# get pearson correlation coefficients for pairwise comparisons between samples
+sampleDists <- dist(t(assay(rlog_HIRA.dds ))) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDistMatrix <- as.matrix(sampleDists)
+row.names(sampleDistMatrix) <- Mut_metaData$sample
+# plot sample distance matrix
+
+row.names(Mut_metaData) <- Mut_metaData$sample
+```
+
+# remove batch effect then visualize with PCA
+```{r}
+mat <- assay(rlog_HIRA.dds)
+mm <- model.matrix(~Genotype, colData(rlog_HIRA.dds))
+mat_removeBatch <- limma::removeBatchEffect(mat, batch=rlog_HIRA.dds$Biorep, design=mm)
+row.names(mat_removeBatch) <- row.names(rlog_HIRA.dds)
+
+PCA_rmBatch_all <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = length(mat))
+
+PCA_rmBatch_top10000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 10000)
+PCA_rmBatch_top1000 <- runPCA(mat=mat_removeBatch, Mut_metaData, ntop = 1000)
+
+# rearrange columns 
+mat <- mat[ ,c(2,1,3:6)]
+mat_removeBatch <- mat_removeBatch[ ,c(2,1,3:6)]
+```
+
+### plot PCA:
+```{r}
+runPCA <- function(mat, Mut_metaData, ntop = nrow(mat)) {
+  # Calculate row variances
+  rv <- rowVars(mat)
+  
+  # Select top variable features (ntop capped by number of rows)
+  select <- order(rv, decreasing = TRUE)[seq_len(min(ntop, length(rv)))]
+  
+  # Subset and transpose for PCA (samples x genes)
+  mat_forPCA <- t(mat[select, ])
+  
+  # Run PCA (scale. = TRUE is usually recommended)
+  pca_result <- prcomp(mat_forPCA, scale. = TRUE)
+  
+  # Calculate variance explained (in percentages, rounded)
+  VarianceExplained <- round((pca_result$sdev^2 / sum(pca_result$sdev^2)) * 100)
+  
+  # Combine PCA coordinates with metadata
+  pca_result_df <- cbind(as.data.frame(pca_result$x), Mut_metaData)
+  
+  # Return as list for convenience
+  return(list(pca_result = pca_result,
+              pca_df = pca_result_df,
+              variance_explained = VarianceExplained))
+}
+
+PCA_all <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = length(assay(rlog_HIRA.dds)))
+
+PCA_top10000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 10000)
+PCA_top1000 <- runPCA(mat=assay(rlog_HIRA.dds), Mut_metaData, ntop = 1000)
+
+# PC1 vs PC2
+ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)
+
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep))+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)
+```
+# plot PCA comparing batch corrected vs uncorrected counts. 
+```{r}
+pdf(paste0(pdf_dir, "/HIRAMut.PCA.batchCorrected.vs.Uncorrected.pdf"), width=12, height=6)
+# uncorrected counts
+plot_grid(ggplot(data=PCA_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: all peaks"), 
+# batch corrected counts
+ggplot(data=PCA_rmBatch_all$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_all$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_all$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: all peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 10,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top10000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top10000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top10000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 10,000 most variable peaks")
+)
+
+plot_grid(
+ggplot(data=PCA_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA: top 1,000 most variable peaks"),
+
+ggplot(data=PCA_rmBatch_top1000$pca_df) + geom_point(aes(x=PC1, y=PC2, color=Genotype, shape=Biorep), size=3)+geom_text_repel(aes(x=PC1, y=PC2, label=sample))+xlab(paste0("PC1: ", PCA_rmBatch_top1000$variance_explained[1], "% Variance Explained"))+ylab(paste0("PC2: ", PCA_rmBatch_top1000$variance_explained[2], "% Variance Explained"))+theme_classic()+scale_color_manual(values=hm_cols$Genotype)+
+  ggtitle("PCA Batch Corrected: top 1,000 most variable peaks")
+)
+dev.off()
+```
+# plot sample correlation:
+```{r}
+pdf(paste0(pdf_dir, "/HIRAMut.batchCorrected.vs.Uncorrected.sampleDistMatrix.pdf"))
+pheatmap(sampleDistMatrix, colorRampPalette(rev(c("white", "#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = Mut_metaData[ ,-1], annotation_colors = hm_cols, display_numbers = TRUE, main="Uncorrected")
+
+pheatmap(sampleDistMatrix, colorRampPalette(rev(c("white", "#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = Mut_metaData[ ,-1], annotation_colors = hm_cols, cluster_cols = F, cluster_rows = F, display_numbers = TRUE, main="Uncorrected")
+
+# get pearson correlation coefficients for pairwise comparisons between samples
+sampleDists <- dist(t(mat_removeBatch)) # get rlog normalized count matrix & convert to distance measure for calculating correlations. 
+sampleDistMatrix_rmBatch <- as.matrix(sampleDists)
+row.names(sampleDistMatrix_rmBatch) <- Mut_metaData$sample
+# plot sample distance matrix for batch corrected counts
+pheatmap(sampleDistMatrix_rmBatch, colorRampPalette(rev(c("white","white","#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = Mut_metaData[ ,-1], annotation_colors = hm_cols, display_numbers = TRUE, main=" Batch corrected")
+pheatmap(sampleDistMatrix_rmBatch, colorRampPalette(rev(c("white","white","#FFFFB2","#FED976", "#FEB24C", "#FD8D3C", "#E31A1C", "#B10026")))(100), annotation_row = Mut_metaData[ ,-1], annotation_colors = hm_cols, cluster_cols = F, cluster_rows = F, display_numbers = TRUE, main=" Batch corrected")
+dev.off()
+```
+
+# perform DESeq
+```{r}
+HIRA.dds <- DESeq(HIRA.dds)
+WTvs43AMut.res <- results(HIRA.dds, contrast=c("Genotype", "WT", "43AMut"))
+WTvsHIDMut.res <- results(HIRA.dds, contrast=c("Genotype", "WT", "HIDMut"))
+HIDMutvs43A.res <- results(HIRA.dds, contrast=c("Genotype", "HIDMut" , "43AMut"))
+```
+
+```{r}
+# get significant results
+sigResWald <- list("WTvs43AMut"=WTvs43AMut.res[WTvs43AMut.res$padj < 0.01 & !is.na(WTvs43AMut.res$padj) & abs(WTvs43AMut.res$log2FoldChange) >= 0.5, ],
+                   "WTvsHIDMut"=WTvsHIDMut.res[WTvsHIDMut.res$padj < 0.01 & !is.na(WTvsHIDMut.res$padj) & abs(WTvsHIDMut.res$log2FoldChange) >= 0.5, ], 
+                   "HIDMutvs43A"=HIDMutvs43A.res[HIDMutvs43A.res$padj < 0.01 & !is.na(HIDMutvs43A.res$padj) & abs(HIDMutvs43A.res$log2FoldChange) >= 0.5, ])
+sigResWald <- lapply(sigResWald, function(x){x[order(x$log2FoldChange, decreasing=T), ]})
+# get peak_ids of significant peaks. 
+sigPeak.ID.Wald <- sapply(sigResWald, function(x){row.names(x)})
+sigPeak.ID.Wald <- unique(unlist(sigPeak.ID.Wald))
+
+# import masterpeaks
+HIRA.masterpeaks <- import("/lustre/fs4/fnbk_lab/scratch/hkonishi/spermATAC/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_6_IDR_tagalign/nonredundant_masterpeaks_IDR.0.1.gtf")
+# get GRanges of sigPeaks
+sigResWald_GR <- lapply(sigResWald, function(x){HIRA.masterpeaks[HIRA.masterpeaks$peak_id %in% row.names(x)]})
+```
+
+```{r}
+# write DESeq results
+for(i in 1:length(sigResWald)){
+write.csv(as.data.frame(sigResWald[[i]]), file=paste0(pdf_dir, "/", names(sigResWald)[i], "_DESeqWaldResults.csv"))}
+```
+
+# rlogCounts under significant peaks
+```{r}
+rlog_HIRA.sigMat <- mat_removeBatch[row.names(mat_removeBatch) %in% sigPeak.ID.Wald, ]
+
+# find k-means clusters
+set.seed(2025)
+ distance_matrix <- dist(t(scale(t(rlog_HIRA.sigMat))))
+    
+    hc <- hclust(distance_matrix, method = "complete")
+    
+    # Order the rows based on hierarchical clustering
+    order <- hc$order
+    
+    # Reorder the original data matrix
+    rlog_HIRA.sigMat  <- rlog_HIRA.sigMat[order, ]
+    
+cutree_3 <- sort(cutree(hc, k=3))
+    
+# annotate which cluster peaks belong to 
+anno.HIRA.sigPeaks_df <- data.frame(row.names = names(cutree(hc, k=3)), Cluster=as.factor(cutree(hc, k=3)))
+# annotate if peaks overlap with centromeres
+anno.HIRA.sigPeaks_df$Centromere <- ifelse(row.names(anno.HIRA.sigPeaks_df) %in% HIRA.masterpeaks[HIRA.masterpeaks %over% CENPA_OwenSmith_regions]$peak_id, "Yes", "No")
+```
+```{r}
+pdf(paste0(pdf_dir, "/rlog_HIRA.sigMat.pdf"))
+pheatmap(rlog_HIRA.sigMat, scale="row", cluster_cols = F, cluster_rows = T, annotation_col = Mut_metaData[ ,-c(1,2)], annotation_row = anno.HIRA.sigPeaks_df, show_rownames = F, annotation_colors = hm_cols, main=paste0("Significant Peaks:", nrow(rlog_HIRA.sigMat)))
+
+pheatmap(mat[match(row.names(rlog_HIRA.sigMat), row.names(mat)), ], scale="row", cluster_cols = F, cluster_rows = T, annotation_col = Mut_metaData[ ,-c(1,2)], annotation_row = anno.HIRA.sigPeaks_df, show_rownames = F, annotation_colors = hm_cols, main=paste0("Significant Peaks, uncorrected counts:", nrow(rlog_HIRA.sigMat)))
+
+pheatmap(rlog_HIRA.sigMat, cluster_cols = F, cluster_rows = T, annotation_col = Mut_metaData[ ,-c(1,3)], annotation_row = anno.HIRA.sigPeaks_df, show_rownames = F, colorRampPalette(brewer.pal(n = 7, name ="Reds"))(100), annotation_colors = hm_cols, main=paste0("Significant Peaks:", nrow(rlog_HIRA.sigMat)))
+dev.off()
+```
+
+# Overlap of significant peaks (Venn diagram)
+```{r}
+# write function to create venn diagrams that are proportional to size of each category. 
+create_proportional_venn <- function(sets, set_labels, colors = c("#E0ADCD", "#B3C543", "#A0ADCD")) {
+  library(eulerr)
+  # Check if sets and labels are provided correctly
+  if (length(sets) != length(set_labels)) {
+    stop("The number of sets and set_labels must be the same.")
+  }
+  
+  # Prepare the data for eulerr
+  venn_data <- setNames(sets, set_labels)
+  
+  # Use eulerr to calculate the Venn diagram
+  venn_fit <- euler(venn_data)
+  
+  # Plot the Venn diagram
+  plot(venn_fit, 
+       fills = colors, 
+       labels = list(cex = 1, fontfamily = "Helvetica"),
+       quantities = list(cex = 1),
+       edges = list(lwd = 2))
+}
+pdf(paste0(pdf_dir, "/diffsigPeaks.HIRA.mut.VennDiagram.pdf"))
+create_proportional_venn(sets=list(row.names(sigResWald$WTvs43AMut), 
+                                   row.names(sigResWald$WTvsHIDMut), 
+                                   HIRA.masterpeaks[HIRA.masterpeaks %over% CENPA_OwenSmith_regions]$peak_id), 
+                         set_labels = c("WT vs 43A", "WT vs HID", "Centromeres"), 
+                         colors = c("slategrey", "aquamarine3", "gold")
+)
+create_proportional_venn(sets=list(row.names(sigResWald$WTvs43AMut), 
+                                   row.names(sigResWald$WTvsHIDMut), 
+                                   row.names(sigResWald$HIDMutvs43A)),
+                         set_labels = c("WT vs 43A", "WT vs HID", "HID vs 43A"), 
+                         colors = c("slategrey", "aquamarine3", "firebrick")
+)
+dev.off()
+```
+
+# Peak Annotation of significant peaks vs all peaks 
+```{r}
+# get GRanges of sigPeaks
+HIRA.sigResWald_GR <- HIRA.masterpeaks[HIRA.masterpeaks$peak_id %in% sigPeak.ID.Wald]
+
+HIRA.sigResWald_GR <- lapply(as.factor(1:3), function(x){HIRA.sigResWald_GR[HIRA.sigResWald_GR$peak_id %in% names(which(cutree_3 ==x))]})
+names(HIRA.sigResWald_GR) <-paste0("Cluster", 1:3)
+
+anno.HIRA.sigResWald_GR <- lapply(HIRA.sigResWald_GR, annotatePeak, TxDb = TxDb.Xeno)
+anno.HIRA.masterpeaks_GR <- annotatePeak(HIRA.masterpeaks, TxDb = TxDb.Xeno)
+```
+
+# plot peak anno
+```{r}
+pdf(paste0(pdf_dir, "/plotAnnoPie.HIRAmut.pdf"))
+lapply(names(anno.HIRA.sigResWald_GR), function(x){plotAnnoPie(anno.HIRA.sigResWald_GR[[x]], main=paste0(x, ": ", length(HIRA.sigResWald_GR[[x]]), " peaks"))}) 
+plotAnnoPie(anno.HIRA.masterpeaks_GR, main="all acccessible peaks")
+dev.off()
+
+# plot distance from TSS
+pdf(paste0(pdf_dir, "/plotDistToTSS.HIRAmut.pdf"))
+lapply(names(anno.HIRA.sigResWald_GR), function(x){plotDistToTSS(anno.HIRA.sigResWald_GR[[x]], title=paste0(x, ": ", length(HIRA.sigResWald_GR[[x]]), " peaks"))}) 
+plotDistToTSS(anno.HIRA.masterpeaks_GR, title="all acccessible peaks")
+dev.off()
+```
+
+# extract annotation info of significant peaks
+```{r}
+anno.HIRA.sigResWald_GR <- lapply(anno.HIRA.sigResWald_GR, as.GRanges)
+
+for(i in 1:length(anno.HIRA.sigResWald_GR)){
+anno.HIRA.sigResWald_GR[[i]]$gene_biotype <- gene_annoXeno[match(anno.HIRA.sigResWald_GR[[i]]$geneId, gene_annoXeno$gene_id), ]$gene_biotype
+anno.HIRA.sigResWald_GR[[i]]$gbkey <- gene_annoXeno[match(anno.HIRA.sigResWald_GR[[i]]$geneId, gene_annoXeno$gene_id), ]$gbkey
+anno.HIRA.sigResWald_GR[[i]]$annotation <- gsub("^\\s*(\\S+)\\s(?!UTR).*", "\\1", anno.HIRA.sigResWald_GR[[i]]$annotation, perl = TRUE)
+anno.HIRA.sigResWald_GR[[i]]$Centromere <- ifelse(anno.HIRA.sigResWald_GR[[i]] %over% CENPA_OwenSmith_regions, "Centromeric", "Non-centromeric")
+}
+
+# convert anno GR of sig peaks to df 
+anno.HIRA.sigResWald_df <- lapply(names(anno.HIRA.sigResWald_GR), function(x){
+y <- as.data.frame(anno.HIRA.sigResWald_GR[[x]])
+y$Cluster <- x
+return(y)})
+anno.HIRA.sigResWald_df <- do.call(rbind, anno.HIRA.sigResWald_df)
+```
+
+# plot peak anno stats
+```{r}
+anno.HIRA.masterpeaks_GR <- as.GRanges(anno.HIRA.masterpeaks_GR) # convert masterpeaks anno to GR
+
+# add cluster info of sig peaks to master peaks GR
+anno.HIRA.masterpeaks_GR$Cluster <- as.character(anno.HIRA.sigPeaks_df[match(anno.HIRA.masterpeaks_GR$peak_id, row.names(anno.HIRA.sigPeaks_df)), ]$Cluster)
+anno.HIRA.masterpeaks_GR[which(is.na(anno.HIRA.masterpeaks_GR$Cluster)), ]$Cluster <- "static peaks"
+
+# add column indicating if peak is significant or static
+anno.HIRA.masterpeaks_GR$Peak.Sig <- ifelse(anno.HIRA.masterpeaks_GR$Cluster %in% "static peaks", "static", "significant")
+```
+
+# plot peak anno stats: distanceToTSS
+```{r}
+# Shapiro-Wilk test for normality
+shapiro_test <- shapiro.test(sample(abs(anno.HIRA.masterpeaks_GR$distanceToTSS), size=5000))
+print(shapiro_test)
+# Visualize distribution of peak distance to TSS
+ggplot(as.data.frame(anno.HIRA.masterpeaks_GR), aes(x = abs(distanceToTSS))) +
+  geom_histogram(binwidth = 10000, fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of absolute distance to TSS values", x = "DistancetoTSS", y = "Count")
+```
+
+# plot distribution of peak distance to nearest TSS
+```{r}
+# Wilcoxon rank-sum test Cluster 1 & 2 sig peaks combined vs cluster 3 peaks
+w <- wilcox.test(abs(c(anno.HIRA.sigResWald_GR$Cluster2$distanceToTSS, anno.HIRA.sigResWald_GR$Cluster3$distanceToTSS)), abs(anno.HIRA.sigResWald_GR$Cluster1$distanceToTSS))
+
+# Kolmogorov–Smirnov test Cluster 1 & 2 sig peaks combined vs cluster 3 peaks
+ks <- ks.test(abs(c(anno.HIRA.sigResWald_GR$Cluster2$distanceToTSS, anno.HIRA.sigResWald_GR$Cluster3$distanceToTSS)), abs(anno.HIRA.sigResWald_GR$Cluster1$distanceToTSS))
+
+# plot distribution of peak distance to nearest TSS
+pdf(paste0(pdf_dir, "/distancetoNearestTSS.violinPlot.HIRA.pdf"))
+
+# sig peaks: different clusters
+  ggplot(as.data.frame(anno.HIRA.masterpeaks_GR), aes(x=Cluster, y=abs(distanceToTSS), color=Cluster))+
+   geom_violin() +
+    geom_quasirandom(
+      color = "black", alpha = 0.2,
+      method = "pseudorandom", # Aligns jitter points to violin shape
+      groupOnX = TRUE,
+      size = 0.5, 
+      width=0.4, 
+    ) +
+    geom_boxplot(width=0.1, alpha=0.5) +
+theme_minimal()+
+  theme(legend.position = "none")+
+annotate("text", x = 1.5, y = 5e+05, label = paste0("Wilcoxon rank sum p=", w$p.value), vjust = -0.5)+
+annotate("text", x = 1.5, y = 5.5e+05, label = paste0("Kolmogorov–Smirnov p=", ks$p.value), vjust = -0.5)+
+  scale_color_manual(values=c(brewer.pal(3, "Pastel1"), "#24325FFF"))+
+  scale_y_continuous(limits=c(0,550000))+
+  ggtitle("Cluster 2+3 vs Cluster 1")
+
+# Wilcoxon rank-sum test static peaks vs significant peaks
+w <- wilcox.test(abs(anno.HIRA.masterpeaks_GR[!anno.HIRA.masterpeaks_GR$Peak.Sig %in% "static"]$distanceToTSS), abs(anno.HIRA.masterpeaks_GR[anno.HIRA.masterpeaks_GR$Peak.Sig %in% "static"]$distanceToTSS))
+
+# Kolmogorov–Smirnov test static peaks vs significant peaks
+ks <- ks.test(abs(anno.HIRA.masterpeaks_GR[!anno.HIRA.masterpeaks_GR$Peak.Sig %in% "static"]$distanceToTSS), abs(anno.HIRA.masterpeaks_GR[anno.HIRA.masterpeaks_GR$Peak.Sig %in% "static"]$distanceToTSS))
+
+# Sig vs Static peaks 
+ggplot(as.data.frame(anno.HIRA.masterpeaks_GR), aes(x=Peak.Sig, y=abs(distanceToTSS), color=Peak.Sig))+geom_violin()+geom_boxplot(width=0.2)+
+scale_color_manual(values=c("thistle3", "#24325FFF"))+
+  ggtitle("Sig peaks vs static peaks")+
+theme_minimal()+
+  theme(legend.position = "none")+
+  annotate("text", x = 1.5, y = 9e+05, label = paste0("Wilcoxon rank sum p=", w$p.value), vjust = -0.5)+
+annotate("text", x = 1.5, y = 9.5e+05, label = paste0("Kolmogorov–Smirnov p=", ks$p.value), vjust = -0.5)
+
+# set scale limit to 2.5e+05: Sig vs Static peaks 
+ggplot(as.data.frame(anno.HIRA.masterpeaks_GR), aes(x=Peak.Sig, y=abs(distanceToTSS), color=Peak.Sig))+geom_violin()+geom_boxplot(width=0.2)+
+scale_color_manual(values=c("thistle3", "#24325FFF"))+
+  ggtitle("Sig peaks vs static peaks")+
+theme_minimal()+
+  theme(legend.position = "none")+
+  annotate("text", x = 1.5, y = 9e+05, label = paste0("Wilcoxon rank sum p=", w$p.value), vjust = -0.5)+
+annotate("text", x = 1.5, y = 9.5e+05, label = paste0("Kolmogorov–Smirnov p=", ks$p.value), vjust = -0.5)+
+  scale_y_continuous(limits=c(0, 250000))
+dev.off()
+```
+
+# plot type of nearest gene for sig peaks
+```{r}
+HIRA.sig.GeneAnno_df <- anno.HIRA.sigResWald_df %>%
+  group_by(Cluster, gene_biotype, annotation) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Cluster) %>%
+  mutate(PercentTotalPeaks = (n / sum(n))*100)
+
+pdf(paste0(pdf_dir, "/NearestGeneBiotype.HIRA.pdf"))
+ggplot(HIRA.sig.GeneAnno_df, aes(x=gene_biotype, y=PercentTotalPeaks, fill=annotation))+
+  geom_col()+
+  facet_wrap(~Cluster)+
+theme_classic()+
+  theme(axis.text.x = element_text(angle=90))+
+  ggtitle("Type of nearest gene")+
+  scale_fill_cosmic()
+dev.off()
+```
+
+# extract normalized counts under significant peaks
+```{r}
+HIRA.NormCountsMat <- counts(HIRA.dds, normalized=T)
+sig.HIRA.NormCounts <- HIRA.NormCountsMat[row.names(HIRA.NormCountsMat) %in% sigPeak.ID.Wald, ]
+# convert matrix of normalized counts of sig peaks into a dataframe with metaData information for ggplot to accept
+sig.HIRA.NormCounts_df <- list()
+for(i in 1:nrow(sig.HIRA.NormCounts)){
+sig.HIRA.NormCounts_df[[i]] <- data.frame(Counts=sig.HIRA.NormCounts[i, ], sample=names((sig.HIRA.NormCounts[i, ])), Peak_ID= row.names(sig.HIRA.NormCounts)[i], Mut_metaData)
+}
+sig.HIRA.NormCounts_df <- do.call(rbind, sig.HIRA.NormCounts_df) # combine list into 1 giant dataframe
+```
+
+# convert rlogCounts matrix of significant peaks to df. 
+```{r}
+sig.HIRA.rlogCounts_df <- list()
+for(i in 1:nrow(rlog_HIRA.sigMat)){
+sig.HIRA.rlogCounts_df[[i]] <- data.frame(Counts=rlog_HIRA.sigMat[i, ], sample=names((rlog_HIRA.sigMat[i, ])), Peak_ID= row.names(rlog_HIRA.sigMat)[i], Mut_metaData)
+}
+sig.HIRA.rlogCounts_df <- do.call(rbind, sig.HIRA.rlogCounts_df) # combine list into 1 giant dataframe
+```
+
+# prepare annotation of different genomic regions as dataframe for plotting genome coverage
+```{r}
+# generate df of centromeric regions
+CENPA_df <- as.data.frame(CENPA_OwenSmith_regions)[ ,c(1:3)]
+colnames(CENPA_df) <- colnames(hg_gap)[1:3]
+
+# generate df of epigenetic marks
+H3K9me3_df <- as.data.frame(H3K9me3_hc_peaks)[ ,c(1:3)]
+colnames(H3K9me3_df) <- colnames(hg_gap)[1:3]
+
+H3K27me3_df <- as.data.frame(H3K27me3_hc_peaks)[ ,c(1:3)]
+colnames(H3K27me3_df) <- colnames(hg_gap)[1:3]
+
+H3K4me3_df <- as.data.frame(H3K4me3_hc_peaks)[ ,c(1:3)]
+colnames(H3K4me3_df) <- colnames(hg_gap)[1:3]
+
+# generate df of chromosome lengths
+xenLae2 <- read.table("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1_genomic.fna.fai", sep="\t")
+
+# make GRanges object for whole genome
+chrom_lengths <- data.frame(Chrom=xenLae2$V1, ChrLength=xenLae2$V2)
+chrom_lengths <- chrom_lengths[!grepl("Sca|MT", chrom_lengths$Chrom), ]
+```
+# prepare dataframe to plot normalized counts under significant peaks
+```{r}
+# calculate median normalized count under sig peaks within each condition
+HIRA.sigResWald_GR <- lapply(HIRA.sigResWald_GR, function(x){
+  x$WT <- apply(sig.HIRA.NormCounts[match(x$peak_id, row.names(sig.HIRA.NormCounts)), 1:2], 1, median)
+  x$Mut43A <- apply(sig.HIRA.NormCounts[match(x$peak_id, row.names(sig.HIRA.NormCounts)), 3:4], 1, median)
+  x$MutHID <- apply(sig.HIRA.NormCounts[match(x$peak_id, row.names(sig.HIRA.NormCounts)), 5:6], 1, median)
+    return(x)}) 
+# convert GR to df
+sig.HIRA.ResWald_GR_df <-  lapply(HIRA.sigResWald_GR, function(x){
+  x <- as.data.frame(x)[ ,c(1:3, 10, 11:13)]
+  colnames(x) <- c(colnames(hg_gap)[1:3], "ID", "WT", "Mut_43A", "Mut_HID")
+  return(x)})  
+# add column for midpoint of peak to plot normalized read count at on the x axis
+sig.HIRA.ResWald_GR_df <- lapply(sig.HIRA.ResWald_GR_df, function(x){x %>% 
+  mutate(Midpoint = (Start + End) / 2)})
+
+# add cluster info & merge into 1 df
+sig.HIRA.ResWald_GR_df <- lapply(names(sig.HIRA.ResWald_GR_df), function(x){
+  sig.HIRA.ResWald_GR_df[[x]]$Cluster <- x
+  return(sig.HIRA.ResWald_GR_df[[x]])
+})
+sig.HIRA.ResWald_GR_df <- do.call(rbind, sig.HIRA.ResWald_GR_df)
+
+# convert to long format for ggplot to accept
+sig.HIRA.ResWald_long_df <- sig.HIRA.ResWald_GR_df %>%
+  dplyr::select(Chrom, Midpoint, WT, Mut_43A, Mut_HID, Cluster) %>%
+  tidyr::pivot_longer(cols = c(WT, Mut_43A, Mut_HID), 
+                      names_to = "Sample", values_to = "NormCount") %>%
+  left_join(chrom_lengths, by = "Chrom")
+
+```
+
+# plot normalized reads under significant peaks (free y scale for each chromosome)
+```{r}
+pdf(paste0(pdf_dir, "/GenomeCov.HIRA.sigPeaks.pdf"), width=50, height=100)
+
+# all sig peaks
+ggplot() +
+  geom_point(
+    data = sig.HIRA.ResWald_long_df,
+    aes(x = Midpoint, y = NormCount, color = Sample), size=3, alpha=0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = -500, ymax = -100),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = sig.HIRA.ResWald_GR_df,
+    aes(xmin = Start-100000, xmax = End+100000, ymin = -1000, ymax = -600, fill=Cluster), inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K4me3_df,
+    aes(xmin = Start, xmax = End, ymin = -1500, ymax = -1100),
+    fill = "darkorange", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K27me3_df,
+    aes(xmin = Start, xmax = End, ymin = -2000, ymax = -1600),
+    fill = "olivedrab", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_rect(
+    data = H3K9me3_df,
+    aes(xmin = Start, xmax = End, ymin = -2500, ymax = -2100),
+    fill = "plum4", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  # invisible layer to force x-axis length per chromosome
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~Chrom, scales = "free_x", ncol = 1) +
+  theme_classic() +
+  xlab("Genomic Position (bp)") +
+  ylab("Normalized Counts/10") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40),
+    axis.text.x = element_text(size = 40)
+  ) +
+  scale_color_manual(values=c("#E7298A", "#A6761D", "#1B9E77"))+
+  scale_fill_manual(values=brewer.pal(3, "Pastel1"))+
+  scale_y_continuous(limits = c(-2500, 2500), oob = oob_squish)+
+  ggtitle("All sig peaks")
+dev.off()
+```
+
+
+# plot bigwig tracks of epigenetic mods relative to sig peaks & centromeres
+```{r}
+# generate df of bigwig signal under high confidence peaks
+H3K9me3_bw$HistMod <- "H3K9me3"
+H3K4me3_bw$HistMod <- "H3K4me3"
+H3K27me3_bw$HistMod <- "H3K27me3"
+
+HistMods_bw_df <- as.data.frame(c(H3K9me3_bw, H3K4me3_bw, H3K27me3_bw))[ ,c(1:3, 6:7)]
+colnames(HistMods_bw_df) <- c(colnames(hg_gap)[1:3], "score", "HistMod")
+HistMods_bw_df$Midpoint <- (HistMods_bw_df$Start+HistMods_bw_df$End)/2
+
+
+# bin 20bp intervals into 2kb intervals instead
+HistMods_bw_2kb <- HistMods_bw_df %>%
+  mutate(Bin2kb = floor(Start / 2000) * 2000) %>%   # bin start into 1kb blocks
+  group_by(Chrom, HistMod, Bin2kb) %>%
+  summarise(
+    score = mean(score, na.rm = TRUE),
+    Start = min(Start),
+    End   = max(End),
+    Midpoint = (min(Start) + max(End)) / 2,
+    .groups = "drop"
+  )
+```
+
+# plot histone mods signal vs norm counts under sig peaks
+```{r}
+pdf(paste0(pdf_dir, "/GenomeCov.HIRA.sigPeaks.vs.HistModSignal.pdf"), width=50, height=100)
+ggplot() +
+  geom_col(
+    data = HistMods_bw_2kb,
+    aes(x = Midpoint, y = -score, fill = HistMod), position="dodge", alpha=0.5
+  ) +
+  geom_rect(
+    data = CENPA_df,
+    aes(xmin = Start-20000, xmax = End+20000, ymin = 0, ymax = 8),
+    fill = "gold", alpha = 0.7, inherit.aes = FALSE
+  ) +
+  geom_point(
+    data = sig.HIRA.ResWald_long_df,
+    aes(x = Midpoint, y=NormCount/100, color=Sample), alpha=0.5, size=2
+  ) +
+  geom_blank(
+    data = chrom_lengths,
+    aes(x = ChrLength, y = 0)  # ensures each facet spans full chromosome
+  ) +
+  facet_wrap(~Chrom, scales = "free_x", ncol=1) +
+  theme_classic() +
+  xlab("Genomic Position") +
+  ylab("Bigwig score : Normalized Counts/100") +
+  theme(
+    strip.text = element_text(size = 40),
+    axis.text.y = element_text(size = 40), 
+    axis.text.x = element_text(size = 40), 
+    axis.title = element_text(size = 40),
+    title=element_text(size = 40), 
+    legend.text=element_text(size = 40)
+  )+
+  scale_fill_manual(
+    values = c("olivedrab", "darkorange", "plum4")
+  )+
+  scale_color_manual(values=c("#E7298A", "#A6761D", "#1B9E77"))+
+  scale_y_continuous(limits = c(-50, 50), oob = oob_squish)+ # for values above scale limits, just squish to max limit and do not remove
+  ggtitle("norm counts under all sig peaks vs histone mods signal")
+dev.off()
+```
