@@ -1,0 +1,9 @@
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK034_WT/atacHAK034_WT_S1_R1_001.trim.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK035_43AMut/atacHAK035_43AMut_S1_R1_001.trim.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK036_HIDMut/atacHAK036_HIDMut_S1_R1_001.trim.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK040_WT/atacHAK040_WT_S1_R1_001.trim.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK041_43AMut/atacHAK041_43AMut_S1_R1_001.trim.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK042_HIDMut/atacHAK042_HIDMut_S1_R1_001.trim.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK043_WT/intermediates/atacHAK043_WT_S1_R1_001.trim.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK044_43AMut/intermediates/atacHAK044_43AMut_S1_R1_001.trim.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/ATACseq_pipeline/atacHAK045_HIDMut/atacHAK045_HIDMut_S1_R1_001.trim.fastq.gz

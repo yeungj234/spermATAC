@@ -1,0 +1,6 @@
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/BioProject_PRJNA577715/fastq/SRR10285468.fastq
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/BioProject_PRJNA577715/fastq/SRR10285469.fastq
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/BioProject_PRJNA577715/fastq/SRR10285470.fastq
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/BioProject_PRJNA577715/fastq/SRR10285471.fastq
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/BioProject_PRJNA577715/fastq/SRR10285472.fastq
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/BioProject_PRJNA577715/fastq/SRR10285473.fastq

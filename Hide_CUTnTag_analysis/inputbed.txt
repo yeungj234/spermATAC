@@ -1,0 +1,4 @@
+/lustre/fs4/fnbk_lab/scratch/hkonishi/testRunCheck/forJoanna/cntHAK007/tracks/cntHAK007_S7_001.trim.st.all.qft.rmdup.atac.bed
+/lustre/fs4/fnbk_lab/scratch/hkonishi/testRunCheck/forJoanna/cntHAK008/tracks/cntHAK008_S8_001.trim.st.all.qft.rmdup.atac.bed
+/lustre/fs4/fnbk_lab/scratch/hkonishi/testRunCheck/forJoanna/cntHAK009/tracks/cntHAK009_S9_001.trim.st.all.qft.rmdup.atac.bed
+/lustre/fs4/fnbk_lab/scratch/hkonishi/testRunCheck/forJoanna/cntHAK010/tracks/cntHAK010_S10_001.trim.st.all.qft.rmdup.atac.bed

@@ -1,0 +1,534 @@
+# list of files in this directory before deleting.
+.
+├── ATACseq_pipeline_v2
+│   ├── atacHAK001
+│   │   ├── atacHAK001_dups.log
+│   │   ├── atacHAK001_hist_data_withdups.log
+│   │   ├── atacHAK001_hist_data_withoutdups.log
+│   │   ├── atacHAK001_hist_graphwithdups.pdf
+│   │   ├── atacHAK001_hist_graphwithoutdups.pdf
+│   │   ├── atacHAK001_S6_001.trim.alignlog
+│   │   ├── atacHAK001_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── atacHAK001_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── atacHAK001_S6_001.trim.st.bam.bai
+│   │   ├── atacHAK001_S6_adapter_trim.log
+│   │   ├── atacHAK001_S6_R1_001.trim_fastqc.html
+│   │   ├── atacHAK001_S6_R1_001.trim_fastqc.zip
+│   │   ├── atacHAK001_S6_R1_001.trim.fastq.gz
+│   │   ├── atacHAK001_S6_R1_001.trim_screen.html
+│   │   ├── atacHAK001_S6_R1_001.trim_screen.png
+│   │   ├── atacHAK001_S6_R1_001.trim_screen.txt
+│   │   ├── atacHAK001_S6_R2_001.trim_fastqc.html
+│   │   ├── atacHAK001_S6_R2_001.trim_fastqc.zip
+│   │   ├── atacHAK001_S6_R2_001.trim.fastq.gz
+│   │   ├── atacHAK001_S6_R2_001.trim_screen.html
+│   │   ├── atacHAK001_S6_R2_001.trim_screen.png
+│   │   ├── atacHAK001_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── atacHAK001_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── atacHAK002
+│   │   ├── atacHAK002_dups.log
+│   │   ├── atacHAK002_hist_data_withdups.log
+│   │   ├── atacHAK002_hist_data_withoutdups.log
+│   │   ├── atacHAK002_hist_graphwithdups.pdf
+│   │   ├── atacHAK002_hist_graphwithoutdups.pdf
+│   │   ├── atacHAK002_S6_001.trim.alignlog
+│   │   ├── atacHAK002_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── atacHAK002_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── atacHAK002_S6_001.trim.st.bam.bai
+│   │   ├── atacHAK002_S6_adapter_trim.log
+│   │   ├── atacHAK002_S6_R1_001.trim_fastqc.html
+│   │   ├── atacHAK002_S6_R1_001.trim_fastqc.zip
+│   │   ├── atacHAK002_S6_R1_001.trim.fastq.gz
+│   │   ├── atacHAK002_S6_R1_001.trim_screen.html
+│   │   ├── atacHAK002_S6_R1_001.trim_screen.png
+│   │   ├── atacHAK002_S6_R1_001.trim_screen.txt
+│   │   ├── atacHAK002_S6_R2_001.trim_fastqc.html
+│   │   ├── atacHAK002_S6_R2_001.trim_fastqc.zip
+│   │   ├── atacHAK002_S6_R2_001.trim.fastq.gz
+│   │   ├── atacHAK002_S6_R2_001.trim_screen.html
+│   │   ├── atacHAK002_S6_R2_001.trim_screen.png
+│   │   ├── atacHAK002_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── atacHAK002_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── atacHAK007
+│   │   ├── atacHAK007_dups.log
+│   │   ├── atacHAK007_hist_data_withdups.log
+│   │   ├── atacHAK007_hist_data_withoutdups.log
+│   │   ├── atacHAK007_hist_graphwithdups.pdf
+│   │   ├── atacHAK007_hist_graphwithoutdups.pdf
+│   │   ├── atacHAK007_S6_001.trim.alignlog
+│   │   ├── atacHAK007_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── atacHAK007_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── atacHAK007_S6_001.trim.st.bam.bai
+│   │   ├── atacHAK007_S6_adapter_trim.log
+│   │   ├── atacHAK007_S6_R1_001.trim_fastqc.html
+│   │   ├── atacHAK007_S6_R1_001.trim_fastqc.zip
+│   │   ├── atacHAK007_S6_R1_001.trim.fastq.gz
+│   │   ├── atacHAK007_S6_R1_001.trim_screen.html
+│   │   ├── atacHAK007_S6_R1_001.trim_screen.png
+│   │   ├── atacHAK007_S6_R1_001.trim_screen.txt
+│   │   ├── atacHAK007_S6_R2_001.trim_fastqc.html
+│   │   ├── atacHAK007_S6_R2_001.trim_fastqc.zip
+│   │   ├── atacHAK007_S6_R2_001.trim.fastq.gz
+│   │   ├── atacHAK007_S6_R2_001.trim_screen.html
+│   │   ├── atacHAK007_S6_R2_001.trim_screen.png
+│   │   ├── atacHAK007_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── atacHAK007_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── atacHAK023
+│   │   ├── atacHAK023_dups.log
+│   │   ├── atacHAK023_hist_data_withdups.log
+│   │   ├── atacHAK023_hist_data_withoutdups.log
+│   │   ├── atacHAK023_hist_graphwithdups.pdf
+│   │   ├── atacHAK023_hist_graphwithoutdups.pdf
+│   │   ├── atacHAK023_S6_001.trim.alignlog
+│   │   ├── atacHAK023_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── atacHAK023_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── atacHAK023_S6_001.trim.st.bam.bai
+│   │   ├── atacHAK023_S6_adapter_trim.log
+│   │   ├── atacHAK023_S6_R1_001.trim_fastqc.html
+│   │   ├── atacHAK023_S6_R1_001.trim_fastqc.zip
+│   │   ├── atacHAK023_S6_R1_001.trim.fastq.gz
+│   │   ├── atacHAK023_S6_R1_001.trim_screen.html
+│   │   ├── atacHAK023_S6_R1_001.trim_screen.png
+│   │   ├── atacHAK023_S6_R1_001.trim_screen.txt
+│   │   ├── atacHAK023_S6_R2_001.trim_fastqc.html
+│   │   ├── atacHAK023_S6_R2_001.trim_fastqc.zip
+│   │   ├── atacHAK023_S6_R2_001.trim.fastq.gz
+│   │   ├── atacHAK023_S6_R2_001.trim_screen.html
+│   │   ├── atacHAK023_S6_R2_001.trim_screen.png
+│   │   ├── atacHAK023_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── atacHAK023_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── atacHAK024
+│   │   ├── atacHAK024_dups.log
+│   │   ├── atacHAK024_hist_data_withdups.log
+│   │   ├── atacHAK024_hist_data_withoutdups.log
+│   │   ├── atacHAK024_hist_graphwithdups.pdf
+│   │   ├── atacHAK024_hist_graphwithoutdups.pdf
+│   │   ├── atacHAK024_S6_001.trim.alignlog
+│   │   ├── atacHAK024_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── atacHAK024_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── atacHAK024_S6_001.trim.st.bam.bai
+│   │   ├── atacHAK024_S6_adapter_trim.log
+│   │   ├── atacHAK024_S6_R1_001.trim_fastqc.html
+│   │   ├── atacHAK024_S6_R1_001.trim_fastqc.zip
+│   │   ├── atacHAK024_S6_R1_001.trim.fastq.gz
+│   │   ├── atacHAK024_S6_R1_001.trim_screen.html
+│   │   ├── atacHAK024_S6_R1_001.trim_screen.png
+│   │   ├── atacHAK024_S6_R1_001.trim_screen.txt
+│   │   ├── atacHAK024_S6_R2_001.trim_fastqc.html
+│   │   ├── atacHAK024_S6_R2_001.trim_fastqc.zip
+│   │   ├── atacHAK024_S6_R2_001.trim.fastq.gz
+│   │   ├── atacHAK024_S6_R2_001.trim_screen.html
+│   │   ├── atacHAK024_S6_R2_001.trim_screen.png
+│   │   ├── atacHAK024_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── atacHAK024_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── atacHAK025
+│   │   ├── atacHAK025_dups.log
+│   │   ├── atacHAK025_hist_data_withdups.log
+│   │   ├── atacHAK025_hist_data_withoutdups.log
+│   │   ├── atacHAK025_hist_graphwithdups.pdf
+│   │   ├── atacHAK025_hist_graphwithoutdups.pdf
+│   │   ├── atacHAK025.idxstats.dat
+│   │   ├── atacHAK025_S6_001.trim.alignlog
+│   │   ├── atacHAK025_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── atacHAK025_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── atacHAK025_S6_001.trim.st.bam.bai
+│   │   ├── atacHAK025_S6_adapter_trim.log
+│   │   ├── atacHAK025_S6_R1_001.trim_fastqc.html
+│   │   ├── atacHAK025_S6_R1_001.trim_fastqc.zip
+│   │   ├── atacHAK025_S6_R1_001.trim.fastq.gz
+│   │   ├── atacHAK025_S6_R1_001.trim_screen.html
+│   │   ├── atacHAK025_S6_R1_001.trim_screen.png
+│   │   ├── atacHAK025_S6_R1_001.trim_screen.txt
+│   │   ├── atacHAK025_S6_R2_001.trim_fastqc.html
+│   │   ├── atacHAK025_S6_R2_001.trim_fastqc.zip
+│   │   ├── atacHAK025_S6_R2_001.trim.fastq.gz
+│   │   ├── atacHAK025_S6_R2_001.trim_screen.html
+│   │   ├── atacHAK025_S6_R2_001.trim_screen.png
+│   │   ├── atacHAK025_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── atacHAK025_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── atac_mergedbams
+│   │   ├── atacHAK_Interphase_merged.bam
+│   │   ├── atacHAK_Interphase_merged_sorted.bam
+│   │   ├── atacHAK_Interphase_merged_sorted.bam.bai
+│   │   ├── atacHAK_Mitotic_merged.bam
+│   │   ├── atacHAK_Mitotic_merged_sorted.bam
+│   │   ├── atacHAK_Mitotic_merged_sorted.bam.bai
+│   │   └── README.txt
+│   ├── atac_mergedbigwigs
+│   │   ├── atacHAK_Interphase_merged_scaleFactornorm.bw
+│   │   ├── atacHAK_Mitotic_merged_scaleFactornorm.bw
+│   │   ├── bamCoverage_scaleFactor_noOffset.slurm
+│   │   ├── scaleFactor_bw-29803490-4294967294.err
+│   │   ├── scaleFactor_bw-29803490-4294967294.out
+│   │   ├── scaleFactor_bw-29804889-4294967294.err
+│   │   └── scaleFactor_bw-29804889-4294967294.out
+│   ├── ATACseqRunSummary.log
+│   ├── cntHAK012
+│   │   ├── cntHAK012_dups.log
+│   │   ├── cntHAK012_hist_data_withdups.log
+│   │   ├── cntHAK012_hist_data_withoutdups.log
+│   │   ├── cntHAK012_hist_graphwithdups.pdf
+│   │   ├── cntHAK012_hist_graphwithoutdups.pdf
+│   │   ├── cntHAK012_S6_001.trim.alignlog
+│   │   ├── cntHAK012_S6_001.trim.st.all.qft.bam
+│   │   ├── cntHAK012_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── cntHAK012_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── cntHAK012_S6_001.trim.st.bam.bai
+│   │   ├── cntHAK012_S6_adapter_trim.log
+│   │   ├── cntHAK012_S6_R1_001.trim_fastqc.html
+│   │   ├── cntHAK012_S6_R1_001.trim_fastqc.zip
+│   │   ├── cntHAK012_S6_R1_001.trim.fastq.gz
+│   │   ├── cntHAK012_S6_R1_001.trim_screen.html
+│   │   ├── cntHAK012_S6_R1_001.trim_screen.png
+│   │   ├── cntHAK012_S6_R1_001.trim_screen.txt
+│   │   ├── cntHAK012_S6_R2_001.trim_fastqc.html
+│   │   ├── cntHAK012_S6_R2_001.trim_fastqc.zip
+│   │   ├── cntHAK012_S6_R2_001.trim.fastq.gz
+│   │   ├── cntHAK012_S6_R2_001.trim_screen.html
+│   │   ├── cntHAK012_S6_R2_001.trim_screen.png
+│   │   ├── cntHAK012_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── cntHAK012_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── cntHAK014
+│   │   ├── cntHAK014_dups.log
+│   │   ├── cntHAK014_hist_data_withdups.log
+│   │   ├── cntHAK014_hist_data_withoutdups.log
+│   │   ├── cntHAK014_hist_graphwithdups.pdf
+│   │   ├── cntHAK014_hist_graphwithoutdups.pdf
+│   │   ├── cntHAK014_S6_001.trim.alignlog
+│   │   ├── cntHAK014_S6_001.trim.st.all.qft.bam
+│   │   ├── cntHAK014_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── cntHAK014_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── cntHAK014_S6_001.trim.st.bam.bai
+│   │   ├── cntHAK014_S6_adapter_trim.log
+│   │   ├── cntHAK014_S6_R1_001.trim_fastqc.html
+│   │   ├── cntHAK014_S6_R1_001.trim_fastqc.zip
+│   │   ├── cntHAK014_S6_R1_001.trim.fastq.gz
+│   │   ├── cntHAK014_S6_R1_001.trim_screen.html
+│   │   ├── cntHAK014_S6_R1_001.trim_screen.png
+│   │   ├── cntHAK014_S6_R1_001.trim_screen.txt
+│   │   ├── cntHAK014_S6_R2_001.trim_fastqc.html
+│   │   ├── cntHAK014_S6_R2_001.trim_fastqc.zip
+│   │   ├── cntHAK014_S6_R2_001.trim.fastq.gz
+│   │   ├── cntHAK014_S6_R2_001.trim_screen.html
+│   │   ├── cntHAK014_S6_R2_001.trim_screen.png
+│   │   ├── cntHAK014_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── cntHAK014_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── cntHAK020
+│   │   ├── cntHAK020_dups.log
+│   │   ├── cntHAK020_hist_data_withdups.log
+│   │   ├── cntHAK020_hist_data_withoutdups.log
+│   │   ├── cntHAK020_hist_graphwithdups.pdf
+│   │   ├── cntHAK020_hist_graphwithoutdups.pdf
+│   │   ├── cntHAK020_S6_001.trim.alignlog
+│   │   ├── cntHAK020_S6_001.trim.st.all.qft.bam
+│   │   ├── cntHAK020_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── cntHAK020_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── cntHAK020_S6_001.trim.st.bam.bai
+│   │   ├── cntHAK020_S6_adapter_trim.log
+│   │   ├── cntHAK020_S6_R1_001.trim_fastqc.html
+│   │   ├── cntHAK020_S6_R1_001.trim_fastqc.zip
+│   │   ├── cntHAK020_S6_R1_001.trim.fastq.gz
+│   │   ├── cntHAK020_S6_R1_001.trim_screen.html
+│   │   ├── cntHAK020_S6_R1_001.trim_screen.png
+│   │   ├── cntHAK020_S6_R1_001.trim_screen.txt
+│   │   ├── cntHAK020_S6_R2_001.trim_fastqc.html
+│   │   ├── cntHAK020_S6_R2_001.trim_fastqc.zip
+│   │   ├── cntHAK020_S6_R2_001.trim.fastq.gz
+│   │   ├── cntHAK020_S6_R2_001.trim_screen.html
+│   │   ├── cntHAK020_S6_R2_001.trim_screen.png
+│   │   ├── cntHAK020_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── cntHAK020_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── cntHAK025
+│   │   ├── cntHAK025_dups.log
+│   │   ├── cntHAK025_hist_data_withdups.log
+│   │   ├── cntHAK025_hist_data_withoutdups.log
+│   │   ├── cntHAK025_hist_graphwithdups.pdf
+│   │   ├── cntHAK025_hist_graphwithoutdups.pdf
+│   │   ├── cntHAK025_S6_001.trim.alignlog
+│   │   ├── cntHAK025_S6_001.trim.st.all.qft.bam
+│   │   ├── cntHAK025_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── cntHAK025_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── cntHAK025_S6_001.trim.st.bam.bai
+│   │   ├── cntHAK025_S6_adapter_trim.log
+│   │   ├── cntHAK025_S6_R1_001.trim_fastqc.html
+│   │   ├── cntHAK025_S6_R1_001.trim_fastqc.zip
+│   │   ├── cntHAK025_S6_R1_001.trim.fastq.gz
+│   │   ├── cntHAK025_S6_R1_001.trim_screen.html
+│   │   ├── cntHAK025_S6_R1_001.trim_screen.png
+│   │   ├── cntHAK025_S6_R1_001.trim_screen.txt
+│   │   ├── cntHAK025_S6_R2_001.trim_fastqc.html
+│   │   ├── cntHAK025_S6_R2_001.trim_fastqc.zip
+│   │   ├── cntHAK025_S6_R2_001.trim.fastq.gz
+│   │   ├── cntHAK025_S6_R2_001.trim_screen.html
+│   │   ├── cntHAK025_S6_R2_001.trim_screen.png
+│   │   ├── cntHAK025_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── cntHAK025_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── cntHAK026
+│   │   ├── cntHAK026_dups.log
+│   │   ├── cntHAK026_hist_data_withdups.log
+│   │   ├── cntHAK026_hist_data_withoutdups.log
+│   │   ├── cntHAK026_hist_graphwithdups.pdf
+│   │   ├── cntHAK026_hist_graphwithoutdups.pdf
+│   │   ├── cntHAK026_S6_001.trim.alignlog
+│   │   ├── cntHAK026_S6_001.trim.st.all.qft.bam
+│   │   ├── cntHAK026_S6_001.trim.st.all.qft.RefSeqTSS.log
+│   │   ├── cntHAK026_S6_001.trim.st.all.qft.RefSeqTSS.png
+│   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac.bam
+│   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac.bam.bai
+│   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.bam
+│   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.bam.bai
+│   │   ├── cntHAK026_S6_001.trim.st.bam.bai
+│   │   ├── cntHAK026_S6_adapter_trim.log
+│   │   ├── cntHAK026_S6_R1_001.trim_fastqc.html
+│   │   ├── cntHAK026_S6_R1_001.trim_fastqc.zip
+│   │   ├── cntHAK026_S6_R1_001.trim.fastq.gz
+│   │   ├── cntHAK026_S6_R1_001.trim_screen.html
+│   │   ├── cntHAK026_S6_R1_001.trim_screen.png
+│   │   ├── cntHAK026_S6_R1_001.trim_screen.txt
+│   │   ├── cntHAK026_S6_R2_001.trim_fastqc.html
+│   │   ├── cntHAK026_S6_R2_001.trim_fastqc.zip
+│   │   ├── cntHAK026_S6_R2_001.trim.fastq.gz
+│   │   ├── cntHAK026_S6_R2_001.trim_screen.html
+│   │   ├── cntHAK026_S6_R2_001.trim_screen.png
+│   │   ├── cntHAK026_S6_R2_001.trim_screen.txt
+│   │   ├── intermediates
+│   │   ├── peakCalls
+│   │   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_control_lambda.bdg
+│   │   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_FE.bdg
+│   │   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_FE.bw
+│   │   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_peaks.narrowPeak
+│   │   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_peaks.xls
+│   │   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_pval.bdg
+│   │   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_pval.bw
+│   │   │   ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_summits.bed
+│   │   │   └── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac_treat_pileup.bdg
+│   │   └── tracks
+│   │       ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac.bdg
+│   │       ├── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac.bed
+│   │       └── cntHAK026_S6_001.trim.st.all.qft.rmdup.atac.bw
+│   ├── isdplots001.pdf
+│   ├── samples.txt
+│   ├── slurm-16258178_10.out
+│   ├── slurm-16258178_11.out
+│   ├── slurm-16258178_1.out
+│   ├── slurm-16258178_2.out
+│   ├── slurm-16258178_3.out
+│   ├── slurm-16258178_4.out
+│   ├── slurm-16258178_5.out
+│   ├── slurm-16258178_6.out
+│   ├── slurm-16258178_7.out
+│   ├── slurm-16258178_8.out
+│   ├── slurm-16258178_9.out
+│   ├── slurm-16908002_1.out
+│   └── slurm-16908003.out
+├── directory_tree_07262025.txt
+├── ENCODE_IMR90_ATACseq
+│   ├── bams
+│   │   ├── ENCFF715NAV.bam
+│   │   └── ENCFF848XMR.bam
+│   ├── beds
+│   │   └── ENCFF982UNH.conservative.IDR.thresholded.peaks.bed
+│   └── bigwigs
+│       ├── ENCFF619RWM.bigWig
+│       ├── ENCFF770EAV.merged.reps.bigWig
+│       └── ENCFF861RID.bigWig
+├── UCSC
+│   └── xenLae2_UCSC_gap.txt
+└── Xenbase
+    └── ChIPseq
+        ├── bigwigs
+        │   ├── CENPA_GSM4633643_22776.bw
+        │   ├── CENPA_GSM4633648_22777.bw
+        │   ├── CENPA_GSM4633653_22778.bw
+        │   ├── H3K27me3_sperm_egg_extract_adult_frog_GSM3587306_15593.bw
+        │   ├── H3K4me3_sperm_egg_extract_adult_frog_GSM3587294_15598.bw
+        │   └── H3K9me3_spermatozoon_adult_GSM1944484_1349.bw
+        └── peaks
+            ├── CENPA_GSM4633643_22776_broadPeaks.bed
+            ├── CENPA_GSM4633648_22777_broadPeaks.bed
+            ├── CENPA_GSM4633653_22778_broadPeaks.bed
+            ├── H3K27me3_sperm_egg_extract_adult_frog_GSM3587306_15593_broadPeaks.bed
+            ├── H3K4me3_sperm_egg_extract_adult_frog_GSM3587294_15598_broadPeaks.bed
+            └── H3K9me3_spermatozoon_adult_GSM1944484_1349_broadPeaks.bed
+
+56 directories, 474 files

@@ -1,0 +1,12 @@
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_10/atacHAK020_S29_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_11/atacHAK021_S30_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_12/atacHAK022_S31_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_1/atacHAK011_S20_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_2/atacHAK012_S21_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_3/atacHAK013_S22_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_4/atacHAK014_S23_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_5/atacHAK015_S24_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_6/atacHAK016_S25_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_7/atacHAK017_S26_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_8/atacHAK018_S27_R2_001.fastq.gz
+/lustre/fs4/risc_lab/scratch/jrendleman/230920_VL00112_354_AACWWYWM5/Aligned_Reads/spermATAChak/spermATAChak_9/atacHAK019_S28_R2_001.fastq.gz
