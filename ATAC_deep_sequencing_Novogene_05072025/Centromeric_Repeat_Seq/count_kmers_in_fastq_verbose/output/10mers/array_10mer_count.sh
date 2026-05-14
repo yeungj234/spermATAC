@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=16
 
 # example of sbatch command
-# sbatch --array=1-6 --export=inputfiles=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_2_fastq_align/inputfiles_R1.txt,samplelist=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_2_fastq_align/samplenames.txt,outdir=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/10mers array_10mer_count.sh
+# sbatch --array=1-9 --export=inputfiles=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_05072025/Justin_ATAC_pipeline/atac_2_fastq_align/inputfiles_R1.txt,samplelist=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_2_fastq_align/samplenames.txt,outdir=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/10mers array_10mer_count.sh
 
 # Initialize conda properly
 source ~/.bashrc

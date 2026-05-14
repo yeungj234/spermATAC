@@ -14,45 +14,34 @@ library(pheatmap)
 library(ggplot2)
 library(RColorBrewer)
 library(cowplot)
-library(sva)
-library(preprocessCore)
-library(viridis)
 library(scales)
 library(ChIPseeker)
-library(TxDb.Hsapiens.UCSC.hg38.knownGene)
-library(org.Hs.eg.db)
-library(BSgenome.Hsapiens.UCSC.hg38)
-library(MotifDb)
-library(motifmatchr)
-library(Biostrings)
-library(clusterProfiler)
 library(pheatmap)
 library(readr)
-library(ggsci)
 library(ggrepel)
 library(chromPlot)
 library(rtracklayer)
 ```
 
 ```{r}
-hm_cols <- list(Condition=c("Interphase"="#B7E4F9FF", "Mitotic"="#24325FFF"),
+hm_cols <- list(Condition=c("Interphase"="#E7210A", "Mitotic"="#24325FFF"),
                 Biorep=c("1"="#4269D0FF", "2"="#EFB118FF", "3"="#FF725CFF"))
 # make TxDb object from Xenopus Laevis gtf file
-TxDb.Xeno <- txdbmaker::makeTxDbFromGFF("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+TxDb.Xeno <- txdbmaker::makeTxDbFromGFF("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
 
-gene_annoXeno <- import("/lustre/fs4/risc_lab/store/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
+gene_annoXeno <- import("/lustre/fs4/risc_lab/scratch/jyeung/ncbi-genomes-2022-09-11/Xenopus_laevis_v10.1/GCF_017654675.1_Xenopus_laevis_v10.1.anno.sorted.gff")
 ```
 
 ```{r}
 ### generate non-redundant master peak set
-setwd("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2")
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/ATACseq_pipeline_v2")
 # read in sample names
 samplenames <- dir()[c(1,3,4,2,5,6)]
 
 # read in narrowPeak file for samples (these are the peaks we want for each sample)
 peakdir <- list()
 for(i in 1:length(samplenames)){
-peakdir[[i]] <- dir(path=paste0("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/", samplenames[i], "/peakCalls"), pattern=".narrowPeak")
+peakdir[[i]] <- dir(path=paste0("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/ATACseq_pipeline_v2/", samplenames[i], "/peakCalls"), pattern=".narrowPeak")
 }
 peakdir <- unlist(peakdir[!is.null(peakdir)])
 # import summits.bed file into R: 
@@ -61,7 +50,7 @@ peakdir <- unlist(peakdir[!is.null(peakdir)])
   # add sample column denoting which sample peak came from. 
 masterpeaks <- list()
 for(i in 1:length(peakdir)){
-  masterpeaks[[i]] <- import(paste0("/lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/", samplenames[i], "/peakCalls/", peakdir[i]))
+  masterpeaks[[i]] <- import(paste0("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/ATACseq_pipeline_v2/", samplenames[i], "/peakCalls/", peakdir[i]))
   masterpeaks[[i]]$name <- paste0(seqnames(masterpeaks[[i]]), ":", start(masterpeaks[[i]]), "-", end(masterpeaks[[i]]))
   masterpeaks[[i]]$sample <- samplenames[i]
 }
