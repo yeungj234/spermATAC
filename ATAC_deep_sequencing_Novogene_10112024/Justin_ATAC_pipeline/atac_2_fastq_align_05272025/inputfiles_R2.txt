@@ -1,0 +1,6 @@
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/atacHAK001/atacHAK001_R2.dedup.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/atacHAK002/atacHAK002_R2.dedup.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/atacHAK007/atacHAK007_R2.dedup.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/atacHAK023/atacHAK023_R2.dedup.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/atacHAK024/atacHAK024_R2.dedup.fastq.gz
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/atacHAK025/atacHAK025_R2.dedup.fastq.gz
