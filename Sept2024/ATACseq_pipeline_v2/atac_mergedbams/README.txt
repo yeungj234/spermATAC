@@ -1,0 +1,3 @@
+cd /lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2
+samtools merge atac_mergedbams/atacHAK_Interphase_merged.bam /lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK001/atacHAK001_S6_001.trim.st.all.qft.rmdup.atac.bam /lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK007/atacHAK007_S6_001.trim.st.all.qft.rmdup.atac.bam /lustre/fs4/risc_lab/store/jyeung/for_Hide/Sep2024/ATACseq_pipeline_v2/atacHAK023/atacHAK023_S6_001.trim.st.all.qft.rmdup.atac.bam
+samtools merge atac_mergedbams/atacHAK_Mitotic_merged.bam $(find . |egrep "atacHAK002|atacHAK024|atacHAK025" |egrep "rmdup.atac.bam$")
