@@ -1,0 +1,17 @@
+#Fastq_screen version: 0.13.0	#Aligner: bowtie2	#Reads in subset: 100000
+Genome	#Reads_processed	#Unmapped	%Unmapped	#One_hit_one_genome	%One_hit_one_genome	#Multiple_hits_one_genome	%Multiple_hits_one_genome	#One_hit_multiple_genomes	%One_hit_multiple_genomes	Multiple_hits_multiple_genomes	%Multiple_hits_multiple_genomes
+Human	100016	95451	95.44	102	0.10	349	0.35	89	0.09	4025	4.02
+Mouse	100016	95738	95.73	84	0.08	101	0.10	592	0.59	3501	3.50
+Yeast(sC)	100016	98722	98.71	0	0.00	1	0.00	5	0.00	1288	1.29
+Yeast(p)	100016	98746	98.73	1	0.00	0	0.00	3	0.00	1266	1.27
+Drosophila	100016	98629	98.62	2	0.00	3	0.00	35	0.03	1347	1.35
+Acholeplasma_laidlawii	100016	100004	99.99	0	0.00	0	0.00	12	0.01	0	0.00
+Mycoplasma_hominis	100016	100016	100.00	0	0.00	0	0.00	0	0.00	0	0.00
+Mycoplasma_hyorhinis	100016	100013	100.00	0	0.00	0	0.00	1	0.00	2	0.00
+Mycoplasma_pneumoniae	100016	100016	100.00	0	0.00	0	0.00	0	0.00	0	0.00
+Ecoli	100016	95675	95.66	4084	4.08	202	0.20	16	0.02	39	0.04
+PhiX	100016	100016	100.00	0	0.00	0	0.00	0	0.00	0	0.00
+Vectors	100016	99281	99.27	106	0.11	92	0.09	122	0.12	415	0.41
+Adapters	100016	100013	100.00	3	0.00	0	0.00	0	0.00	0	0.00
+
+%Hit_no_genomes: 90.65
