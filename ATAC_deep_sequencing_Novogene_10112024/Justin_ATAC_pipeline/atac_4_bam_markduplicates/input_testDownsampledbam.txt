@@ -1,0 +1,1 @@
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_3_bam_managemito/atacHAK002/atacHAK002_chr1-10_0.005downsampled.bam

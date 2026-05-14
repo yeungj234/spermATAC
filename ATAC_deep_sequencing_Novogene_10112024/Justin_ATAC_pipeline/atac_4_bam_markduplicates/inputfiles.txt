@@ -1,0 +1,6 @@
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_3_bam_managemito/atacHAK001/atacHAK001_chr1-10.bam
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_3_bam_managemito/atacHAK002/atacHAK002_chr1-10.bam
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_3_bam_managemito/atacHAK007/atacHAK007_chr1-10.bam
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_3_bam_managemito/atacHAK023/atacHAK023_chr1-10.bam
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_3_bam_managemito/atacHAK024/atacHAK024_chr1-10.bam
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_3_bam_managemito/atacHAK025/atacHAK025_chr1-10.bam
