@@ -9,7 +9,7 @@
 #SBATCH -o %x-%j-%a.out
 
 # example of sbatch command to run this script:
-# sbatch --array=1-6 --export=inputfiles_R1=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_2_fastq_align/inputfiles_R1.txt,inputfiles_R2=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_2_fastq_align/inputfiles_R2.txt,outdir=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify,samplelist=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Justin_ATAC_pipeline/atac_2_fastq_align/samplenames.txt clumpify_dedup.slurm
+# sbatch -p hpc_l40_a --array=1-6 --export=inputfiles_R1=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/inputfiles_R1.txt,inputfiles_R2=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/inputfiles_R2.txt,outdir=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify,samplelist=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/samplenames.txt clumpify_dedup.slurm
 
 READ1=$(head -n $SLURM_ARRAY_TASK_ID "$inputfiles_R1" | tail -n 1)
 READ2=$(head -n $SLURM_ARRAY_TASK_ID "$inputfiles_R2" | tail -n 1)
