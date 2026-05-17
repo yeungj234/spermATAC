@@ -20,10 +20,43 @@ When you click the **Knit** button a document will be generated that includes bo
 sbatch -p hpc_l40_a --array=1-6 --export=inputfiles_R1=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/inputfiles_R1.txt,inputfiles_R2=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/inputfiles_R2.txt,outdir=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify,samplelist=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/samplenames.txt clumpify_dedup.slurm
 ```
 
+# scan each read in deduplicated fastq file for 25-mers from FCR monomers.
+```{bash}
+sbatch -p hpc_l40_a --array=1-6 --export=inputfiles=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/inputfiles_R1.txt,samplelist=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/samplenames.txt,outdir=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/25mers /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/array_25mer_count.sh
+```
+# calculate the number of reads with x number of kmers found --summary
+```{bash}
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/25mers
+
+sbatch -p hpc_l40_a /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/calculate_kmer_freq_reads_summary.sh
+```
+
+# scan each read in deduplicated fastq file for 15-mers from FCR monomers.
+```{bash}
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output
+sbatch -p hpc_l40_a --array=1-6 --export=inputfiles=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/inputfiles_R1.txt,samplelist=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/samplenames.txt,outdir=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/15mers /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/array_15mer_count.sh
+```
+# calculate the number of reads with x number of kmers found --summary
+```{bash}
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/15mers
+
+sbatch -p hpc_l40_a /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/calculate_kmer_freq_reads_summary.sh
+```
+# scan each read in deduplicated fastq file for 10-mers from FCR monomers.
+```{bash}
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output
+sbatch -p hpc_l40_a --array=1-6 --export=inputfiles=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/inputfiles_R1.txt,samplelist=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/samplenames.txt,outdir=/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/10mers /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/array_10mer_count.sh
+```
+# calculate the number of reads with x number of kmers found --summary
+```{bash}
+cd /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/10mers
+
+sbatch -p hpc_l40_a /lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/calculate_kmer_freq_reads_summary.sh
+```
 ```{r 25mers}
-setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output")
+setwd("/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/count_kmers_in_fastq_verbose/output/25mers")
 kmer_summary <- dir(pattern="summary.tsv")
-total_reads <- c(66233269, 91756371, 81105822 , 54252756, 62717380, 115703381)
+total_reads <- c(66233269, 91756371, 81105822 , 54252756, 62717380, 115703381) # from clumpify' seqkit_stats.txt
 names(total_reads) <- gsub("_counts_summary.tsv", "", kmer_summary)
 hist <- list()
 for(i in 1:length(kmer_summary)){

@@ -1,0 +1,8 @@
+file                                                                                                                     format  type     num_seqs        sum_len  min_len  avg_len  max_len
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/ATACseq_pipeline_v2/atacHAK007/atacHAK007_S6_R1_001.trim.fastq.gz  FASTQ   DNA   111,835,375  7,634,677,146       20     68.3      150
+file                                                                                                                                                         format  type    num_seqs        sum_len  min_len  avg_len  max_len
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/atacHAK007/atacHAK007_R1.dedup.fastq.gz  FASTQ   DNA   81,105,822  5,957,689,030       20     73.5      150
+file                                                                                                                     format  type     num_seqs        sum_len  min_len  avg_len  max_len
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/Sept2024/ATACseq_pipeline_v2/atacHAK007/atacHAK007_S6_R2_001.trim.fastq.gz  FASTQ   DNA   111,835,375  7,634,677,146       20     68.3      150
+file                                                                                                                                                         format  type    num_seqs        sum_len  min_len  avg_len  max_len
+/lustre/fs4/risc_lab/scratch/jyeung/for_Hide/ATAC_deep_sequencing_Novogene_10112024/Centromeric_Repeat_Seq/clumpify/atacHAK007/atacHAK007_R2.dedup.fastq.gz  FASTQ   DNA   81,105,822  5,957,689,030       20     73.5      150
